@@ -1,0 +1,866 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PhotoSheet</title>
+<meta name="theme-color" content="#1c2430">
+<style>
+  :root {
+    --bg: #eef0f3; --panel: #ffffff; --ink: #1c2430; --muted: #5d6878; --line: #d6dae0;
+    --accent: #1f6feb; --accent-ink: #ffffff; --danger: #c62828; --drop: #e3edff; --chip: #f1f3f6;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #12161b; --panel: #1b2129; --ink: #e6eaef; --muted: #98a3b2; --line: #2e3742;
+      --accent: #4c8dff; --accent-ink: #0b1220; --danger: #ff6b6b; --drop: #1b2a44; --chip: #242c36;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    background: var(--bg); color: var(--ink);
+    font: 15px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    display: flex; flex-direction: column;
+  }
+  button, input, select, textarea { font: inherit; color: inherit; }
+  .visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+  /* Top bar */
+  .topbar {
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+    padding: 10px 16px; background: #1c2430; color: #fff;
+  }
+  .brand { font-weight: 700; font-size: 18px; letter-spacing: .2px; margin-right: auto; }
+  .brand span { color: #8fb6ff; }
+  .btn {
+    display: inline-flex; align-items: center; gap: 6px; cursor: pointer; user-select: none;
+    border: 1px solid var(--line); background: var(--panel); color: var(--ink);
+    padding: 7px 12px; border-radius: 8px; font-size: 14px; line-height: 1.2; white-space: nowrap;
+  }
+  .btn:hover { border-color: var(--accent); }
+  .btn:disabled { opacity: .5; cursor: default; }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 600; }
+  .topbar .btn { background: #2b3644; border-color: #3b4757; color: #fff; }
+  .topbar .btn.primary { background: #4c8dff; border-color: #4c8dff; color: #0b1220; }
+  .btn.small { padding: 4px 8px; font-size: 13px; }
+  .btn.icon { padding: 4px 7px; min-width: 30px; justify-content: center; }
+  .btn.danger:hover { border-color: var(--danger); color: var(--danger); }
+  @media (pointer: fine) { .touch-only { display: none; } }
+
+  /* Tabs (narrow screens) */
+  .tabs { display: flex; background: var(--panel); border-bottom: 1px solid var(--line); }
+  .tabs button {
+    flex: 1; padding: 10px 4px; border: 0; background: none; cursor: pointer;
+    border-bottom: 3px solid transparent; color: var(--muted); font-weight: 600;
+  }
+  .tabs button[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--accent); }
+
+  main { flex: 1; min-height: 0; display: grid; }
+  .panel { background: var(--panel); min-height: 0; overflow: auto; padding: 14px 16px; }
+  .panel h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .6px; color: var(--muted); margin: 0 0 10px; }
+  .panel-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+  .panel-head h2 { margin: 0 auto 0 0; }
+
+  @media (max-width: 999px) {
+    main > .panel { display: none; }
+    main > .panel.active { display: block; }
+  }
+  @media (min-width: 1000px) {
+    .tabs { display: none; }
+    main { grid-template-columns: minmax(380px, 1fr) minmax(460px, 1.15fr); grid-template-rows: auto 1fr; gap: 1px; background: var(--line); }
+    #photosPanel { grid-row: 1 / 3; }
+    #sheetPanel { max-height: 46vh; }
+  }
+
+  /* Photo list */
+  .empty {
+    border: 2px dashed var(--line); border-radius: 12px; padding: 32px 16px; text-align: center; color: var(--muted);
+  }
+  .empty strong { display: block; color: var(--ink); font-size: 16px; margin-bottom: 6px; }
+  .empty .btns { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; margin-top: 14px; }
+  #list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+  .item {
+    display: grid; grid-template-columns: 22px 88px 1fr; gap: 10px; align-items: start;
+    border: 1px solid var(--line); border-radius: 10px; padding: 8px; background: var(--panel);
+  }
+  .item.sortable-ghost { opacity: .35; }
+  .item.sortable-chosen { box-shadow: 0 6px 20px rgba(0,0,0,.18); }
+  .handle {
+    cursor: grab; color: var(--muted); align-self: stretch; display: flex; align-items: center; justify-content: center;
+    touch-action: none; font-size: 18px; border-radius: 6px;
+  }
+  .handle:hover { background: var(--chip); }
+  @media (max-width: 600px) {
+    .item { grid-template-columns: 18px 64px 1fr; gap: 8px; }
+    .thumb { width: 64px !important; height: 64px !important; }
+    .panel { padding: 12px; }
+  }
+  .thumb { width: 88px; height: 88px; border-radius: 6px; object-fit: cover; background: var(--chip); display: block; }
+  .fields { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+  .meta { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  .num { font-weight: 700; font-size: 14px; }
+  .fname { color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 60px; }
+  .item textarea {
+    width: 100%; resize: vertical; min-height: 44px; padding: 6px 8px;
+    border: 1px solid var(--line); border-radius: 6px; background: var(--bg);
+  }
+  .row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+  .row input.taken { flex: 1; min-width: 120px; padding: 4px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); font-size: 13px; }
+
+  /* Sheet form */
+  .form { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 10px 12px; }
+  .form label { display: flex; flex-direction: column; gap: 3px; font-size: 12px; color: var(--muted); font-weight: 600; }
+  .form input[type=text], .form input[type=number], .form input[type=date], .form select {
+    padding: 7px 9px; border: 1px solid var(--line); border-radius: 7px; background: var(--bg); font-size: 14px; color: var(--ink); font-weight: 400;
+  }
+  .form .wide { grid-column: 1 / -1; }
+  .form .check { flex-direction: row; align-items: center; gap: 8px; color: var(--ink); font-weight: 400; font-size: 14px; }
+  .logo-row { display: flex; align-items: center; gap: 8px; }
+  .logo-row img { height: 34px; max-width: 110px; object-fit: contain; background: #fff; border: 1px solid var(--line); border-radius: 4px; }
+
+  /* Preview pages: always white paper, sized by aspect ratio, text sized in container units */
+  #previewPanel { background: var(--bg); }
+  #pages { display: flex; flex-direction: column; align-items: center; gap: 18px; padding-bottom: 24px; }
+  .page {
+    position: relative; width: 100%; max-width: 760px; background: #fff; color: #111;
+    box-shadow: 0 2px 12px rgba(0,0,0,.18); container-type: inline-size; overflow: hidden;
+    font-family: Helvetica, Arial, sans-serif;
+  }
+  .page > * { position: absolute; }
+  .pg-title { font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .pg-field { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .pg-field b { color: #555; font-weight: 700; }
+  .pg-rule { background: #222; }
+  .pg-logo { object-fit: contain; object-position: right center; }
+  .pg-img { object-fit: contain; }
+  .pg-slot { border: 1px dashed #c8c8c8; }
+  .pg-cap { overflow: hidden; }
+  .pg-cap .l1 { font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .pg-cap .l1 span { font-weight: 400; color: #666; }
+  .pg-cap .d { white-space: pre; }
+  .pg-foot { color: #444; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  /* Drop overlay + toast */
+  #dropOverlay {
+    position: fixed; inset: 0; background: color-mix(in srgb, var(--drop) 88%, transparent); border: 4px dashed var(--accent);
+    display: none; align-items: center; justify-content: center; font-size: 22px; font-weight: 700; z-index: 50; pointer-events: none;
+  }
+  body.dragging #dropOverlay { display: flex; }
+  #toast {
+    position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); z-index: 60;
+    background: #1c2430; color: #fff; padding: 10px 16px; border-radius: 10px; box-shadow: 0 6px 24px rgba(0,0,0,.3);
+    max-width: calc(100vw - 32px); font-size: 14px; display: none;
+  }
+  #toast.show { display: block; }
+</style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">Photo<span>Sheet</span></div>
+    <label class="btn touch-only" title="Take a photo with the camera">
+      Camera<input id="camera" class="visually-hidden" type="file" accept="image/*" capture="environment">
+    </label>
+    <label class="btn" title="Choose photos">
+      Add photos<input id="files" class="visually-hidden" type="file" accept="image/*" multiple>
+    </label>
+    <label class="btn" title="Add every photo in a folder">
+      Add folder<input id="folder" class="visually-hidden" type="file" webkitdirectory multiple>
+    </label>
+    <button class="btn primary" id="exportBtn" type="button">Export PDF</button>
+  </header>
+
+  <nav class="tabs" role="tablist">
+    <button type="button" role="tab" data-tab="photosPanel" aria-selected="true">Photos <span id="tabCount"></span></button>
+    <button type="button" role="tab" data-tab="sheetPanel" aria-selected="false">Sheet</button>
+    <button type="button" role="tab" data-tab="previewPanel" aria-selected="false">Preview</button>
+  </nav>
+
+  <main>
+    <section class="panel active" id="photosPanel">
+      <div class="panel-head">
+        <h2>Photos <span id="count"></span></h2>
+        <button class="btn small" type="button" id="sortName">Sort by name</button>
+        <button class="btn small" type="button" id="sortDate">Sort by date taken</button>
+        <button class="btn small danger" type="button" id="clearAll">Remove all</button>
+      </div>
+      <div class="empty" id="empty">
+        <strong>No photos yet</strong>
+        Drop photos or a folder anywhere on this page, or use the buttons below.
+        <div class="btns">
+          <button class="btn primary" type="button" data-pick="files">Add photos</button>
+          <button class="btn" type="button" data-pick="folder">Add folder</button>
+        </div>
+      </div>
+      <ul id="list"></ul>
+    </section>
+
+    <section class="panel" id="sheetPanel">
+      <h2>Sheet</h2>
+      <div class="form">
+        <label class="wide">Title<input type="text" data-key="title" placeholder="Photo Log"></label>
+        <label>Project<input type="text" data-key="project"></label>
+        <label>Location<input type="text" data-key="location"></label>
+        <label>Client<input type="text" data-key="client"></label>
+        <label>Date<input type="text" data-key="date"></label>
+        <label>Prepared by<input type="text" data-key="preparedBy"></label>
+        <label>Footer text<input type="text" data-key="footer" placeholder="e.g. company name"></label>
+        <label>Paper
+          <select data-key="pageSize">
+            <option value="letter">Letter (8.5 × 11 in)</option>
+            <option value="a4">A4</option>
+            <option value="legal">Legal (8.5 × 14 in)</option>
+          </select>
+        </label>
+        <label>Orientation
+          <select data-key="orientation">
+            <option value="portrait">Portrait</option>
+            <option value="landscape">Landscape</option>
+          </select>
+        </label>
+        <label>Photos per page
+          <select data-key="perPage" data-type="number">
+            <option value="1">1</option><option value="2">2</option><option value="3">3</option>
+            <option value="4">4</option><option value="6">6</option><option value="8">8</option>
+          </select>
+        </label>
+        <label>First photo number<input type="number" min="0" data-key="startNumber" data-type="number"></label>
+        <label class="wide">Logo
+          <span class="logo-row">
+            <img id="logoPreview" alt="" hidden>
+            <label class="btn small">Choose…<input id="logoInput" class="visually-hidden" type="file" accept="image/*"></label>
+            <button class="btn small" type="button" id="logoRemove" hidden>Remove</button>
+          </span>
+        </label>
+        <label class="check"><input type="checkbox" data-key="showDate" data-type="bool"> Show date taken</label>
+        <label class="check"><input type="checkbox" data-key="showFileName" data-type="bool"> Show file name</label>
+      </div>
+    </section>
+
+    <section class="panel" id="previewPanel">
+      <div class="panel-head"><h2>Preview <span id="pageCount"></span></h2></div>
+      <div id="pages"></div>
+    </section>
+  </main>
+
+  <div id="dropOverlay">Drop photos or folders to add them</div>
+  <div id="toast" role="status" aria-live="polite"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.2/Sortable.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/exifr@7.1.3/dist/lite.umd.js"></script>
+<script>
+'use strict';
+
+// ---------- Constants & state ----------
+const PAGE_SIZES = { letter: [215.9, 279.4], a4: [210, 297], legal: [215.9, 355.6] }; // mm, portrait
+const GRIDS = { // [cols, rows] for portrait / landscape
+  1: { p: [1, 1], l: [1, 1] }, 2: { p: [1, 2], l: [2, 1] }, 3: { p: [1, 3], l: [3, 1] },
+  4: { p: [2, 2], l: [2, 2] }, 6: { p: [2, 3], l: [3, 2] }, 8: { p: [2, 4], l: [4, 2] },
+};
+const MAX_EDGE = 2400;      // px; imported photos are scaled down to this long edge
+const JPEG_QUALITY = 0.88;
+const PT = 0.3528;          // mm per point
+
+const today = () => new Date().toISOString().slice(0, 10);
+const DEFAULTS = {
+  title: 'Photo Log', project: '', location: '', client: '', date: today(), preparedBy: '', footer: '',
+  pageSize: 'letter', orientation: 'portrait', perPage: 2, startNumber: 1,
+  showDate: true, showFileName: false, logoId: null,
+};
+
+const state = { settings: { ...DEFAULTS }, photos: [] }; // photos: {id, name, caption, taken, w, h}
+const blobs = new Map();  // id -> Blob
+const urls = new Map();   // id -> object URL
+
+const $ = (sel) => document.querySelector(sel);
+const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+function urlFor(id) {
+  if (!urls.has(id) && blobs.has(id)) urls.set(id, URL.createObjectURL(blobs.get(id)));
+  return urls.get(id) || '';
+}
+function dropBlob(id) {
+  if (urls.has(id)) URL.revokeObjectURL(urls.get(id));
+  urls.delete(id); blobs.delete(id);
+  idb('blobs', 'delete', id);
+}
+
+let toastTimer;
+function toast(msg, ms = 2600) {
+  const t = $('#toast');
+  t.textContent = msg; t.classList.add('show');
+  clearTimeout(toastTimer);
+  if (ms) toastTimer = setTimeout(() => t.classList.remove('show'), ms);
+}
+
+// ---------- Storage (IndexedDB; the app still works in memory if it is unavailable) ----------
+let dbPromise = null;
+function openDb() {
+  if (!dbPromise) {
+    dbPromise = new Promise((resolve) => {
+      try {
+        const req = indexedDB.open('photosheet', 1);
+        req.onupgradeneeded = () => { req.result.createObjectStore('blobs'); req.result.createObjectStore('meta'); };
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => resolve(null);
+      } catch { resolve(null); }
+    });
+  }
+  return dbPromise;
+}
+async function idb(store, op, key, value) {
+  const db = await openDb();
+  if (!db) return undefined;
+  return new Promise((resolve) => {
+    try {
+      const tx = db.transaction(store, op === 'get' ? 'readonly' : 'readwrite');
+      const os = tx.objectStore(store);
+      const req = op === 'get' ? os.get(key) : op === 'put' ? os.put(value, key) : op === 'clear' ? os.clear() : os.delete(key);
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => resolve(undefined);
+    } catch { resolve(undefined); }
+  });
+}
+let saveTimer;
+function save() {
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => idb('meta', 'put', 'project', JSON.stringify(state)), 250);
+}
+async function load() {
+  const raw = await idb('meta', 'get', 'project');
+  if (!raw) return;
+  try {
+    const saved = JSON.parse(raw);
+    state.settings = { ...DEFAULTS, ...saved.settings };
+    const ids = [...(saved.photos || []).map((p) => p.id), state.settings.logoId].filter(Boolean);
+    for (const id of ids) {
+      const b = await idb('blobs', 'get', id);
+      if (b) blobs.set(id, b);
+    }
+    state.photos = (saved.photos || []).filter((p) => blobs.has(p.id));
+    if (state.settings.logoId && !blobs.has(state.settings.logoId)) state.settings.logoId = null;
+  } catch (e) { console.warn('Could not restore saved sheet', e); }
+}
+
+// ---------- Image import ----------
+const IMAGE_EXT = /\.(jpe?g|png|gif|webp|bmp|avif|heic|heif|tiff?)$/i;
+const isImage = (f) => (f.type && f.type.startsWith('image/')) || IMAGE_EXT.test(f.name);
+
+async function decode(blob) {
+  if (window.createImageBitmap) {
+    try { return await createImageBitmap(blob, { imageOrientation: 'from-image' }); } catch { /* fall through */ }
+  }
+  const url = URL.createObjectURL(blob);
+  try {
+    const img = new Image();
+    img.src = url;
+    await img.decode();
+    return img;
+  } finally { URL.revokeObjectURL(url); }
+}
+const dims = (src) => [src.naturalWidth || src.width, src.naturalHeight || src.height];
+
+function canvasBlob(canvas, type, quality) {
+  return new Promise((resolve, reject) => canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('encode failed'))), type, quality));
+}
+
+// Draw onto a canvas (scaled to maxEdge, optionally rotated by 90° steps) and re-encode.
+async function render(src, { maxEdge = MAX_EDGE, rotate = 0, type = 'image/jpeg' } = {}) {
+  const [sw, sh] = dims(src);
+  const scale = Math.min(1, maxEdge / Math.max(sw, sh));
+  const w = Math.round(sw * scale), h = Math.round(sh * scale);
+  const swap = rotate % 180 !== 0;
+  const canvas = document.createElement('canvas');
+  canvas.width = swap ? h : w; canvas.height = swap ? w : h;
+  const ctx = canvas.getContext('2d');
+  if (type === 'image/jpeg') { ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, canvas.width, canvas.height); }
+  ctx.translate(canvas.width / 2, canvas.height / 2);
+  ctx.rotate((rotate * Math.PI) / 180);
+  ctx.drawImage(src, -w / 2, -h / 2, w, h);
+  const blob = await canvasBlob(canvas, type, JPEG_QUALITY);
+  return { blob, w: canvas.width, h: canvas.height };
+}
+
+function formatDate(d) {
+  const p = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+async function readTaken(file) {
+  try {
+    if (window.exifr) {
+      const tags = await exifr.parse(file, ['DateTimeOriginal', 'CreateDate']);
+      const d = tags && (tags.DateTimeOriginal || tags.CreateDate);
+      if (d instanceof Date && !isNaN(d)) return formatDate(d);
+    }
+  } catch { /* no EXIF */ }
+  return file.lastModified ? formatDate(new Date(file.lastModified)) : '';
+}
+
+let importing = false;
+async function importFiles(list) {
+  const files = list.filter((x) => isImage(x.file || x));
+  if (!files.length) { toast('No photos found in what was added.'); return; }
+  if (importing) { toast('Still adding the last batch, try again in a moment.'); return; }
+  importing = true;
+  const skipped = [];
+  let added = 0;
+  try {
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i].file || files[i];
+      toast(`Adding photo ${i + 1} of ${files.length}…`, 0);
+      try {
+        const src = await decode(file);
+        const { blob, w, h } = await render(src);
+        if (src.close) src.close();
+        const photo = { id: uid(), name: file.name, caption: '', taken: await readTaken(file), w, h };
+        blobs.set(photo.id, blob);
+        await idb('blobs', 'put', photo.id, blob);
+        state.photos.push(photo);
+        added++;
+        if (added % 5 === 0) renderList();
+      } catch (e) {
+        console.warn('Skipped', file.name, e);
+        skipped.push(file.name);
+      }
+    }
+  } finally {
+    importing = false;
+    save(); renderList(); schedulePreview();
+  }
+  let msg = `Added ${added} photo${added === 1 ? '' : 's'}.`;
+  if (skipped.length) msg += ` Couldn't read ${skipped.length} (${skipped.slice(0, 3).join(', ')}${skipped.length > 3 ? '…' : ''}). HEIC files only open in Safari; export them as JPEG elsewhere.`;
+  toast(msg, skipped.length ? 8000 : 2600);
+}
+
+// Folder input: keep the folder's own file order (natural sort on the path).
+function fromFolderInput(input) {
+  return [...input.files].sort((a, b) => collator.compare(a.webkitRelativePath || a.name, b.webkitRelativePath || b.name));
+}
+
+// Drag and drop: walk dropped folders recursively.
+async function fromDrop(dt) {
+  const entries = [...(dt.items || [])].map((i) => (i.webkitGetAsEntry ? i.webkitGetAsEntry() : null)).filter(Boolean);
+  if (!entries.length) return [...dt.files];
+  const out = [];
+  const readAll = (reader) => new Promise((res, rej) => reader.readEntries(res, rej));
+  async function walk(entry, path) {
+    if (entry.isFile) {
+      const file = await new Promise((res, rej) => entry.file(res, rej));
+      out.push({ file, path: path + file.name });
+    } else if (entry.isDirectory) {
+      const reader = entry.createReader();
+      let batch;
+      do {
+        batch = await readAll(reader);
+        for (const e of batch) await walk(e, path + entry.name + '/');
+      } while (batch.length);
+    }
+  }
+  for (const e of entries) await walk(e, '');
+  if (entries.some((e) => e.isDirectory)) out.sort((a, b) => collator.compare(a.path, b.path));
+  return out;
+}
+
+// ---------- Photo list ----------
+function number(i) { return (Number(state.settings.startNumber) || 0) + i; }
+
+function renderList() {
+  const list = $('#list');
+  const n = state.photos.length;
+  $('#empty').hidden = n > 0;
+  $('#count').textContent = n ? `(${n})` : '';
+  $('#tabCount').textContent = n ? `(${n})` : '';
+  for (const id of ['sortName', 'sortDate', 'clearAll']) $('#' + id).hidden = n === 0;
+  list.innerHTML = state.photos.map((p, i) => `
+    <li class="item" data-id="${p.id}">
+      <div class="handle" title="Drag to reorder" aria-hidden="true">⋮⋮</div>
+      <img class="thumb" src="${urlFor(p.id)}" alt="">
+      <div class="fields">
+        <div class="meta">
+          <span class="num">Photo ${number(i)}</span>
+          <span class="fname" title="${esc(p.name)}">${esc(p.name)}</span>
+          <button class="btn icon small" type="button" data-act="up" title="Move up" aria-label="Move up" ${i === 0 ? 'disabled' : ''}>↑</button>
+          <button class="btn icon small" type="button" data-act="down" title="Move down" aria-label="Move down" ${i === n - 1 ? 'disabled' : ''}>↓</button>
+          <button class="btn icon small" type="button" data-act="rotate" title="Rotate 90°" aria-label="Rotate">⟳</button>
+          <button class="btn icon small danger" type="button" data-act="remove" title="Remove" aria-label="Remove">✕</button>
+        </div>
+        <textarea data-field="caption" rows="2" placeholder="Description">${esc(p.caption)}</textarea>
+        <div class="row">
+          <input class="taken" data-field="taken" type="text" value="${esc(p.taken)}" placeholder="Date taken" aria-label="Date taken">
+        </div>
+      </div>
+    </li>`).join('');
+}
+
+function renumber() {
+  document.querySelectorAll('#list .item').forEach((el, i) => {
+    el.querySelector('.num').textContent = `Photo ${number(i)}`;
+    el.querySelector('[data-act=up]').disabled = i === 0;
+    el.querySelector('[data-act=down]').disabled = i === state.photos.length - 1;
+  });
+}
+
+function move(from, to) {
+  if (to < 0 || to >= state.photos.length || from === to) return;
+  const [p] = state.photos.splice(from, 1);
+  state.photos.splice(to, 0, p);
+  save(); schedulePreview();
+}
+
+async function rotate(photo) {
+  try {
+    const src = await decode(blobs.get(photo.id));
+    const { blob, w, h } = await render(src, { maxEdge: Infinity, rotate: 90 });
+    if (src.close) src.close();
+    if (urls.has(photo.id)) { URL.revokeObjectURL(urls.get(photo.id)); urls.delete(photo.id); }
+    blobs.set(photo.id, blob);
+    photo.w = w; photo.h = h;
+    await idb('blobs', 'put', photo.id, blob);
+    save(); renderList(); schedulePreview();
+  } catch (e) { console.error(e); toast('Could not rotate that photo.'); }
+}
+
+$('#list').addEventListener('click', (e) => {
+  const btn = e.target.closest('button[data-act]');
+  if (!btn) return;
+  const id = btn.closest('.item').dataset.id;
+  const i = state.photos.findIndex((p) => p.id === id);
+  if (i < 0) return;
+  const act = btn.dataset.act;
+  if (act === 'up' || act === 'down') { move(i, act === 'up' ? i - 1 : i + 1); renderList(); }
+  else if (act === 'rotate') rotate(state.photos[i]);
+  else if (act === 'remove') {
+    state.photos.splice(i, 1);
+    dropBlob(id);
+    save(); renderList(); schedulePreview();
+  }
+});
+$('#list').addEventListener('input', (e) => {
+  const field = e.target.dataset.field;
+  if (!field) return;
+  const p = state.photos.find((x) => x.id === e.target.closest('.item').dataset.id);
+  if (p) { p[field] = e.target.value; save(); schedulePreview(); }
+});
+
+if (window.Sortable) {
+  Sortable.create($('#list'), {
+    handle: '.handle', animation: 150,
+    onEnd: (e) => { if (e.oldIndex !== e.newIndex) { move(e.oldIndex, e.newIndex); renumber(); } },
+  });
+}
+
+$('#sortName').onclick = () => {
+  state.photos.sort((a, b) => collator.compare(a.name, b.name));
+  save(); renderList(); schedulePreview();
+};
+$('#sortDate').onclick = () => {
+  state.photos.sort((a, b) => (a.taken || '').localeCompare(b.taken || '') || collator.compare(a.name, b.name));
+  save(); renderList(); schedulePreview();
+};
+$('#clearAll').onclick = () => {
+  if (!confirm(`Remove all ${state.photos.length} photos from this sheet?`)) return;
+  for (const p of state.photos) dropBlob(p.id);
+  state.photos = [];
+  save(); renderList(); schedulePreview();
+};
+
+// ---------- Sheet settings ----------
+function bindForm() {
+  document.querySelectorAll('[data-key]').forEach((el) => {
+    const key = el.dataset.key;
+    if (el.dataset.type === 'bool') el.checked = !!state.settings[key];
+    else el.value = state.settings[key] ?? '';
+    el.addEventListener(el.tagName === 'SELECT' || el.type === 'checkbox' ? 'change' : 'input', () => {
+      const t = el.dataset.type;
+      state.settings[key] = t === 'bool' ? el.checked : t === 'number' ? Number(el.value) || 0 : el.value;
+      if (key === 'startNumber') renumber();
+      save(); schedulePreview();
+    });
+  });
+  showLogo();
+}
+function showLogo() {
+  const id = state.settings.logoId;
+  $('#logoPreview').hidden = !id;
+  $('#logoRemove').hidden = !id;
+  if (id) $('#logoPreview').src = urlFor(id);
+}
+$('#logoInput').addEventListener('change', async (e) => {
+  const file = e.target.files[0];
+  e.target.value = '';
+  if (!file) return;
+  try {
+    const src = await decode(file);
+    const { blob } = await render(src, { maxEdge: 900, type: 'image/png' });
+    if (src.close) src.close();
+    if (state.settings.logoId) dropBlob(state.settings.logoId);
+    const id = 'logo-' + uid();
+    blobs.set(id, blob);
+    await idb('blobs', 'put', id, blob);
+    state.settings.logoId = id;
+    save(); showLogo(); schedulePreview();
+  } catch { toast('Could not read that logo image.'); }
+});
+$('#logoRemove').onclick = () => {
+  dropBlob(state.settings.logoId);
+  state.settings.logoId = null;
+  save(); showLogo(); schedulePreview();
+};
+
+// ---------- Page layout (shared by preview and PDF), all in mm ----------
+const FONT = { title: 15, field: 8.5, capHead: 9, cap: 8.5, foot: 8 }; // pt
+const LINE = { cap: 3.6 }; // mm
+
+function headerFields(s) {
+  return [['Project', s.project], ['Location', s.location], ['Client', s.client], ['Date', s.date], ['Prepared by', s.preparedBy]]
+    .filter(([, v]) => v && String(v).trim());
+}
+
+function layout(s) {
+  let [W, H] = PAGE_SIZES[s.pageSize] || PAGE_SIZES.letter;
+  const land = s.orientation === 'landscape';
+  if (land) [W, H] = [H, W];
+  const M = 12.7, headerH = 24, footerH = 7, gap = 5, cg = 6, rg = 5;
+  const inner = W - 2 * M;
+  const header = { x: M, y: M, w: inner, h: headerH };
+  const footer = { x: M, y: H - M - footerH, w: inner, h: footerH };
+  const body = { x: M, y: M + headerH + gap, w: inner, h: H - 2 * M - headerH - footerH - 2 * gap };
+  const [cols, rows] = (GRIDS[s.perPage] || GRIDS[2])[land ? 'l' : 'p'];
+  const cw = (body.w - (cols - 1) * cg) / cols;
+  const ch = (body.h - (rows - 1) * rg) / rows;
+  const capH = Math.max(12, Math.min(22, ch * 0.2));
+  const cells = [];
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      const x = body.x + c * (cw + cg), y = body.y + r * (ch + rg);
+      cells.push({ img: { x, y, w: cw, h: ch - capH - 1.5 }, cap: { x, y: y + ch - capH, w: cw, h: capH } });
+    }
+  }
+  const logo = s.logoId ? { x: M + inner - 45, y: M, w: 45, h: headerH - 4 } : null;
+  const textW = inner - (logo ? 49 : 0);
+  return { W, H, M, header, footer, cells, logo, textW };
+}
+
+function fit(box, iw, ih) {
+  const k = Math.min(box.w / iw, box.h / ih);
+  const w = iw * k, h = ih * k;
+  return { x: box.x + (box.w - w) / 2, y: box.y + (box.h - h) / 2, w, h };
+}
+
+// One jsPDF instance is kept just to measure text, so preview line breaks match the PDF.
+let measurer = null;
+function wrap(text, widthMm, pt, maxLines) {
+  text = (text || '').trim();
+  if (!text) return [];
+  let lines;
+  if (window.jspdf) {
+    measurer = measurer || new jspdf.jsPDF({ unit: 'mm' });
+    measurer.setFont('helvetica', 'normal'); measurer.setFontSize(pt);
+    lines = measurer.splitTextToSize(text, widthMm);
+  } else {
+    lines = text.split('\n');
+  }
+  if (lines.length > maxLines) {
+    lines = lines.slice(0, maxLines);
+    lines[maxLines - 1] = lines[maxLines - 1].replace(/\s*\S{0,3}$/, '') + '…';
+  }
+  return lines;
+}
+
+function captionParts(s, photo, n, cap) {
+  let head = `Photo ${n}`;
+  const extra = [];
+  if (s.showDate && photo.taken) extra.push(photo.taken);
+  if (s.showFileName) extra.push(photo.name);
+  const maxLines = Math.max(0, Math.floor((cap.h - 4.2) / LINE.cap));
+  return { head, extra: extra.join('   ·   '), lines: wrap(photo.caption, cap.w, FONT.cap, maxLines) };
+}
+
+function pages() {
+  const per = Number(state.settings.perPage) || 2;
+  const out = [];
+  for (let i = 0; i < state.photos.length; i += per) out.push(state.photos.slice(i, i + per));
+  return out.length ? out : [[]];
+}
+
+// ---------- Preview ----------
+let previewTimer;
+function schedulePreview() { clearTimeout(previewTimer); previewTimer = setTimeout(renderPreview, 120); }
+
+function renderPreview() {
+  const s = state.settings;
+  const L = layout(s);
+  const pct = (b) => `left:${(b.x / L.W) * 100}%;top:${(b.y / L.H) * 100}%;width:${(b.w / L.W) * 100}%;height:${(b.h / L.H) * 100}%;`;
+  const fs = (pt) => `font-size:${((pt * PT) / L.W) * 100}cqw;`;
+  const at = (x, y, w, extra = '') => `left:${(x / L.W) * 100}%;top:${(y / L.H) * 100}%;width:${(w / L.W) * 100}%;${extra}`;
+  const all = pages();
+  const total = all.length;
+  const fields = headerFields(s);
+  const colW = L.textW / 2;
+
+  $('#pageCount').textContent = state.photos.length ? `(${total} page${total === 1 ? '' : 's'})` : '';
+  $('#pages').innerHTML = all.map((photos, pi) => {
+    let html = `<div class="page" style="aspect-ratio:${L.W}/${L.H}">`;
+    html += `<div class="pg-title" style="${at(L.M, L.M, L.textW, fs(FONT.title) + 'line-height:1.15;')}">${esc(s.title || '')}</div>`;
+    fields.forEach(([k, v], i) => {
+      const x = L.M + (i % 2) * colW, y = L.M + 8 + Math.floor(i / 2) * 4.4;
+      html += `<div class="pg-field" style="${at(x, y, colW - 2, fs(FONT.field) + 'line-height:1.2;')}"><b>${esc(k)}:</b> ${esc(v)}</div>`;
+    });
+    if (L.logo) html += `<img class="pg-logo" src="${urlFor(s.logoId)}" style="${pct(L.logo)}" alt="">`;
+    html += `<div class="pg-rule" style="${pct({ x: L.M, y: L.header.y + L.header.h - 0.5, w: L.header.w, h: 0.5 })}"></div>`;
+
+    L.cells.forEach((cell, ci) => {
+      const photo = photos[ci];
+      if (!photo) {
+        if (!state.photos.length) html += `<div class="pg-slot" style="${pct(cell.img)}"></div>`;
+        return;
+      }
+      const n = number(pi * L.cells.length + ci);
+      html += `<img class="pg-img" src="${urlFor(photo.id)}" style="${pct(fit(cell.img, photo.w, photo.h))}" alt="">`;
+      const c = captionParts(s, photo, n, cell.cap);
+      html += `<div class="pg-cap" style="${pct(cell.cap)}">`
+        + `<div class="l1" style="${fs(FONT.capHead)}line-height:1.3;">${esc(c.head)}${c.extra ? ` <span>&nbsp;&nbsp;${esc(c.extra)}</span>` : ''}</div>`
+        + c.lines.map((l) => `<div class="d" style="${fs(FONT.cap)}line-height:${(LINE.cap / (FONT.cap * PT)).toFixed(3)};">${esc(l)}</div>`).join('')
+        + `</div>`;
+    });
+
+    html += `<div class="pg-rule" style="${pct({ x: L.M, y: L.footer.y, w: L.footer.w, h: 0.25 })}"></div>`;
+    html += `<div class="pg-foot" style="${at(L.M, L.footer.y + 1.6, L.footer.w * 0.7, fs(FONT.foot))}">${esc(s.footer || '')}</div>`;
+    html += `<div class="pg-foot" style="${at(L.M + L.footer.w * 0.7, L.footer.y + 1.6, L.footer.w * 0.3, fs(FONT.foot) + 'text-align:right;')}">Page ${pi + 1} of ${total}</div>`;
+    return html + '</div>';
+  }).join('');
+}
+
+// ---------- PDF export ----------
+async function bytes(id) { return new Uint8Array(await blobs.get(id).arrayBuffer()); }
+
+async function exportPdf() {
+  if (!state.photos.length) { toast('Add some photos first.'); return; }
+  if (!window.jspdf) { toast('The PDF library did not load. Check your connection and reload.'); return; }
+  const btn = $('#exportBtn');
+  btn.disabled = true;
+  try {
+    const s = state.settings;
+    const L = layout(s);
+    const orientation = L.W > L.H ? 'landscape' : 'portrait';
+    const doc = new jspdf.jsPDF({ unit: 'mm', format: [L.W, L.H], orientation, compress: true });
+    doc.setProperties({ title: s.title || 'Photo Sheet', creator: 'PhotoSheet' });
+    const all = pages();
+    const fields = headerFields(s);
+    const colW = L.textW / 2;
+    const logo = s.logoId ? await bytes(s.logoId) : null;
+    const logoDims = s.logoId ? dims(await decode(blobs.get(s.logoId))) : null;
+    const clip = (text, w) => { // shorten a single line to fit the width
+      if (doc.getTextWidth(text) <= w) return text;
+      while (text.length > 1 && doc.getTextWidth(text + '…') > w) text = text.slice(0, -1);
+      return text + '…';
+    };
+
+    for (let pi = 0; pi < all.length; pi++) {
+      toast(`Building page ${pi + 1} of ${all.length}…`, 0);
+      if (pi > 0) doc.addPage([L.W, L.H], orientation);
+      // Header
+      doc.setTextColor(17);
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(FONT.title);
+      doc.text(clip(s.title || '', L.textW), L.M, L.M + FONT.title * PT * 0.95);
+      doc.setFontSize(FONT.field);
+      fields.forEach(([k, v], i) => {
+        const x = L.M + (i % 2) * colW, y = L.M + 8 + Math.floor(i / 2) * 4.4 + FONT.field * PT * 0.95;
+        doc.setFont('helvetica', 'bold'); doc.setTextColor(85);
+        const label = `${k}: `;
+        doc.text(label, x, y);
+        const lw = doc.getTextWidth(label);
+        doc.setFont('helvetica', 'normal'); doc.setTextColor(17);
+        doc.text(clip(String(v), colW - 2 - lw), x + lw, y);
+      });
+      if (logo) {
+        const r = fit(L.logo, logoDims[0], logoDims[1]);
+        doc.addImage(logo, 'PNG', L.logo.x + L.logo.w - r.w, r.y, r.w, r.h, 'logo', 'FAST');
+      }
+      doc.setDrawColor(34); doc.setLineWidth(0.5);
+      doc.line(L.M, L.header.y + L.header.h - 0.25, L.M + L.header.w, L.header.y + L.header.h - 0.25);
+
+      // Photos
+      const photos = all[pi];
+      for (let ci = 0; ci < photos.length; ci++) {
+        const photo = photos[ci], cell = L.cells[ci];
+        const n = number(pi * L.cells.length + ci);
+        const r = fit(cell.img, photo.w, photo.h);
+        doc.addImage(await bytes(photo.id), 'JPEG', r.x, r.y, r.w, r.h, photo.id, 'NONE');
+        doc.setDrawColor(200); doc.setLineWidth(0.2); doc.rect(r.x, r.y, r.w, r.h);
+
+        const c = captionParts(s, photo, n, cell.cap);
+        let y = cell.cap.y + FONT.capHead * PT * 1.05;
+        doc.setFont('helvetica', 'bold'); doc.setFontSize(FONT.capHead); doc.setTextColor(17);
+        doc.text(c.head, cell.cap.x, y);
+        if (c.extra) {
+          const hw = doc.getTextWidth(c.head + '  ');
+          doc.setFont('helvetica', 'normal'); doc.setTextColor(102);
+          doc.text(clip(c.extra, cell.cap.w - hw), cell.cap.x + hw, y);
+        }
+        doc.setFont('helvetica', 'normal'); doc.setFontSize(FONT.cap); doc.setTextColor(17);
+        y += 1.0;
+        for (const line of c.lines) { y += LINE.cap; doc.text(line, cell.cap.x, y); }
+      }
+
+      // Footer
+      doc.setDrawColor(34); doc.setLineWidth(0.25);
+      doc.line(L.M, L.footer.y, L.M + L.footer.w, L.footer.y);
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(FONT.foot); doc.setTextColor(68);
+      const fy = L.footer.y + 1.6 + FONT.foot * PT * 0.95;
+      if (s.footer) doc.text(clip(s.footer, L.footer.w * 0.7), L.M, fy);
+      doc.text(`Page ${pi + 1} of ${all.length}`, L.M + L.footer.w, fy, { align: 'right' });
+      await new Promise((r) => setTimeout(r)); // keep the page responsive
+    }
+
+    const name = (s.title || 'photo-sheet').trim().replace(/[\\/:*?"<>|]+/g, '-').slice(0, 80) || 'photo-sheet';
+    doc.save(`${name}.pdf`);
+    toast('PDF saved.');
+  } catch (e) {
+    console.error(e);
+    toast('Could not build the PDF: ' + (e.message || e), 6000);
+  } finally {
+    btn.disabled = false;
+  }
+}
+$('#exportBtn').onclick = exportPdf;
+
+// ---------- Inputs, drag and drop, tabs ----------
+for (const id of ['files', 'camera']) {
+  $('#' + id).addEventListener('change', (e) => { const f = [...e.target.files]; e.target.value = ''; importFiles(f); });
+}
+$('#folder').addEventListener('change', (e) => { const f = fromFolderInput(e.target); e.target.value = ''; importFiles(f); });
+document.querySelectorAll('[data-pick]').forEach((b) => { b.onclick = () => $('#' + b.dataset.pick).click(); });
+
+let dragDepth = 0;
+const hasFiles = (e) => [...(e.dataTransfer?.types || [])].includes('Files');
+window.addEventListener('dragenter', (e) => { if (hasFiles(e)) { dragDepth++; document.body.classList.add('dragging'); } });
+window.addEventListener('dragleave', (e) => { if (hasFiles(e) && --dragDepth <= 0) { dragDepth = 0; document.body.classList.remove('dragging'); } });
+window.addEventListener('dragover', (e) => { if (hasFiles(e)) e.preventDefault(); });
+window.addEventListener('drop', async (e) => {
+  if (!hasFiles(e)) return;
+  e.preventDefault();
+  dragDepth = 0; document.body.classList.remove('dragging');
+  importFiles(await fromDrop(e.dataTransfer));
+});
+
+document.querySelectorAll('.tabs [data-tab]').forEach((tab) => {
+  tab.onclick = () => {
+    document.querySelectorAll('.tabs [data-tab]').forEach((t) => t.setAttribute('aria-selected', String(t === tab)));
+    document.querySelectorAll('main > .panel').forEach((p) => p.classList.toggle('active', p.id === tab.dataset.tab));
+  };
+});
+
+// ---------- Start ----------
+(async () => {
+  await load();
+  bindForm();
+  renderList();
+  renderPreview();
+})();
+</script>
+</body>
+</html>
