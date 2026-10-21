@@ -20,7 +20,10 @@ Everything runs on your device. Photos are never uploaded anywhere.
 4. **Sheet**: set the title, project, location, client, date, prepared by,
    footer text and your company logo (it goes in the top-left corner; a slider sets its size); choose paper (Letter, A4, Legal), orientation, photos
    per page (1, 2, 3, 4, 6 or 8) and the first photo number.
-5. **Preview** shows the pages exactly as they'll print. **Export PDF** saves
+5. **Photo index**: tick *Include photo index at the front* to start the PDF
+   with a table of every photo: number, description, date taken and the page
+   it's on. Untick it to leave the index out.
+6. **Preview** shows the pages exactly as they'll print. **Export PDF** saves
    the file.
 
 ## Reports

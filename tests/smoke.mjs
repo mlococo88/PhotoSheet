@@ -92,6 +92,19 @@ try {
   const small = await page.locator('#pages .pg-logo').first().boundingBox();
   check(small.width < logoBox.width * 0.6, 'logo size slider shrinks the logo');
 
+  // Photo index: ticking the box adds an index page at the front; unticking removes it.
+  await page.check('[data-key=includeIndex]');
+  await page.waitForTimeout(300);
+  check(await page.locator('#pages .page').count() === 3, 'index adds a page');
+  const idx = await page.textContent('#pages .page');
+  check(idx.includes('Photo Index') && idx.includes('North elevation') && idx.includes('Page 1 of 3'), 'index page is first and lists captions');
+  const [withIndex] = await Promise.all([page.waitForEvent('download'), page.click('#exportBtn')]);
+  const pdfIdx = await readFile(await withIndex.path());
+  check((pdfIdx.toString('latin1').match(/\/Type \/Page\b/g) || []).length === 3, 'pdf with index has three pages');
+  await page.uncheck('[data-key=includeIndex]');
+  await page.waitForTimeout(300);
+  check(await page.locator('#pages .page').count() === 2, 'unticking removes the index');
+
   await page.click('#list .item:nth-child(2) [data-act=rotate]');
   await page.waitForTimeout(300);
 

@@ -263,6 +263,7 @@
         </label>
         <label class="check"><input type="checkbox" data-key="showDate" data-type="bool"> Show date taken</label>
         <label class="check"><input type="checkbox" data-key="showFileName" data-type="bool"> Show file name</label>
+        <label class="check"><input type="checkbox" data-key="includeIndex" data-type="bool"> Include photo index at the front</label>
       </div>
     </section>
 
@@ -309,7 +310,7 @@ const today = () => new Date().toISOString().slice(0, 10);
 const DEFAULTS = {
   title: 'Photo Log', project: '', location: '', client: '', date: today(), preparedBy: '', footer: '',
   pageSize: 'letter', orientation: 'portrait', perPage: 2, startNumber: 1,
-  showDate: true, showFileName: false, logoId: null, logoW: 0, logoH: 0, logoScale: 70,
+  showDate: true, showFileName: false, logoId: null, logoW: 0, logoH: 0, logoScale: 70, includeIndex: false,
 };
 
 let state = { id: null, settings: { ...DEFAULTS }, photos: [] }; // photos: {id, name, caption, taken, w, h}
@@ -416,7 +417,7 @@ async function loadReport(id) {
 }
 
 // Settings a new report carries over from the one open now (company details, not job details).
-const CARRY = ['logoScale', 'footer', 'preparedBy', 'pageSize', 'orientation', 'perPage', 'showDate', 'showFileName'];
+const CARRY = ['logoScale', 'includeIndex', 'footer', 'preparedBy', 'pageSize', 'orientation', 'perPage', 'showDate', 'showFileName'];
 
 async function createReport() {
   const prev = state.settings;
@@ -890,7 +891,7 @@ function layout(s) {
   }
   const textX = logo ? M + logo.w + 5 : M;
   const textW = M + inner - textX;
-  return { W, H, M, header, footer, cells, logo, textX, textW };
+  return { W, H, M, header, footer, body, cells, logo, textX, textW };
 }
 
 function fit(box, iw, ih) {
@@ -928,11 +929,32 @@ function captionParts(s, photo, n, cap) {
   return { head, extra: extra.join('   ·   '), lines: wrap(photo.caption, cap.w, FONT.cap, maxLines) };
 }
 
+// Photo index table (mm), drawn in the body area of the index pages.
+const INDEX = { heading: 13, headPt: 8, rowPt: 8, line: 3.4, headH: 6, rowH: 8.6, gap: 3 };
+function indexLayout(L, s) {
+  const top = L.body.y + 9;
+  const noW = 16, pageW = 14, dateW = s.showDate ? 32 : 0;
+  const descW = L.body.w - noW - pageW - dateW - INDEX.gap * (s.showDate ? 3 : 2);
+  const x0 = L.body.x;
+  const cols = { no: x0, desc: x0 + noW + INDEX.gap, date: x0 + noW + descW + INDEX.gap * 2, pageRight: x0 + L.body.w };
+  const perPage = Math.max(1, Math.floor((L.body.h - 9 - INDEX.headH) / INDEX.rowH));
+  return { top, cols, descW, dateW, perPage, rowsTop: top + INDEX.headH };
+}
+
+// Every page in order: index pages (if included) first, then photo pages.
 function pages() {
-  const per = Number(state.settings.perPage) || 2;
-  const out = [];
-  for (let i = 0; i < state.photos.length; i += per) out.push(state.photos.slice(i, i + per));
-  return out.length ? out : [[]];
+  const s = state.settings;
+  const per = Number(s.perPage) || 2;
+  const photoPages = [];
+  for (let i = 0; i < state.photos.length; i += per) photoPages.push({ kind: 'photos', photos: state.photos.slice(i, i + per), first: i });
+  if (!photoPages.length) return [{ kind: 'photos', photos: [], first: 0 }];
+  if (!s.includeIndex) return photoPages;
+  const IL = indexLayout(layout(s), s);
+  const indexCount = Math.ceil(state.photos.length / IL.perPage);
+  const rows = state.photos.map((photo, i) => ({ photo, n: number(i), page: indexCount + Math.floor(i / per) + 1 }));
+  const indexPages = [];
+  for (let i = 0; i < rows.length; i += IL.perPage) indexPages.push({ kind: 'index', rows: rows.slice(i, i + IL.perPage) });
+  return [...indexPages, ...photoPages];
 }
 
 // ---------- Preview ----------
@@ -949,38 +971,64 @@ function renderPreview() {
   const total = all.length;
   const fields = headerFields(s);
   const colW = L.textW / 2;
+  const IL = indexLayout(L, s);
 
-  $('#pageCount').textContent = state.photos.length ? `(${total} page${total === 1 ? '' : 's'})` : '';
-  $('#pages').innerHTML = all.map((photos, pi) => {
-    let html = `<div class="page" style="aspect-ratio:${L.W}/${L.H}">`;
-    html += `<div class="pg-title" style="${at(L.textX, L.M, L.textW, fs(FONT.title) + 'line-height:1.15;')}">${esc(s.title || '')}</div>`;
+  const header = () => {
+    let html = `<div class="pg-title" style="${at(L.textX, L.M, L.textW, fs(FONT.title) + 'line-height:1.15;')}">${esc(s.title || '')}</div>`;
     fields.forEach(([k, v], i) => {
       const x = L.textX + (i % 2) * colW, y = L.M + 8 + Math.floor(i / 2) * 4.4;
       html += `<div class="pg-field" style="${at(x, y, colW - 2, fs(FONT.field) + 'line-height:1.2;')}"><b>${esc(k)}:</b> ${esc(v)}</div>`;
     });
     if (L.logo) html += `<img class="pg-logo" src="${urlFor(s.logoId)}" style="${pct(L.logo)}" alt="">`;
-    html += `<div class="pg-rule" style="${pct({ x: L.M, y: L.header.y + L.header.h - 0.5, w: L.header.w, h: 0.5 })}"></div>`;
+    return html + `<div class="pg-rule" style="${pct({ x: L.M, y: L.header.y + L.header.h - 0.5, w: L.header.w, h: 0.5 })}"></div>`;
+  };
+  const footer = (pageNo) => `<div class="pg-rule" style="${pct({ x: L.M, y: L.footer.y, w: L.footer.w, h: 0.25 })}"></div>`
+    + `<div class="pg-foot" style="${at(L.M, L.footer.y + 1.6, L.footer.w * 0.7, fs(FONT.foot))}">${esc(s.footer || '')}</div>`
+    + `<div class="pg-foot" style="${at(L.M + L.footer.w * 0.7, L.footer.y + 1.6, L.footer.w * 0.3, fs(FONT.foot) + 'text-align:right;')}">Page ${pageNo} of ${total}</div>`;
 
+  const indexBody = (pg) => {
+    const c = IL.cols;
+    const cell = (x, y, w, pt, text, extra = '') => `<div class="pg-field" style="${at(x, y, w, fs(pt) + 'line-height:1.2;' + extra)}">${text}</div>`;
+    let html = `<div class="pg-title" style="${at(L.body.x, L.body.y, L.body.w, fs(INDEX.heading) + 'line-height:1.15;')}">Photo Index</div>`;
+    const hy = IL.top + 1.2;
+    html += cell(c.no, hy, 16, INDEX.headPt, '<b>No.</b>') + cell(c.desc, hy, IL.descW, INDEX.headPt, '<b>Description</b>');
+    if (s.showDate) html += cell(c.date, hy, IL.dateW, INDEX.headPt, '<b>Date taken</b>');
+    html += cell(c.pageRight - 14, hy, 14, INDEX.headPt, '<b>Page</b>', 'text-align:right;');
+    html += `<div class="pg-rule" style="${pct({ x: L.body.x, y: IL.rowsTop - 0.6, w: L.body.w, h: 0.35 })}"></div>`;
+    pg.rows.forEach((r, i) => {
+      const y = IL.rowsTop + i * INDEX.rowH + 1.4;
+      html += cell(c.no, y, 16, INDEX.rowPt, `<b>${r.n}</b>`);
+      html += `<div class="pg-cap" style="${pct({ x: c.desc, y, w: IL.descW, h: INDEX.rowH - 1.4 })}">`
+        + wrap(r.photo.caption, IL.descW, INDEX.rowPt, 2).map((l) => `<div class="d" style="${fs(INDEX.rowPt)}line-height:${(INDEX.line / (INDEX.rowPt * PT)).toFixed(3)};">${esc(l)}</div>`).join('')
+        + `</div>`;
+      if (s.showDate) html += cell(c.date, y, IL.dateW, INDEX.rowPt, esc(r.photo.taken || ''));
+      html += cell(c.pageRight - 14, y, 14, INDEX.rowPt, String(r.page), 'text-align:right;');
+      html += `<div class="pg-rule" style="${pct({ x: L.body.x, y: IL.rowsTop + (i + 1) * INDEX.rowH - 0.4, w: L.body.w, h: 0.15 })};background:#ccc"></div>`;
+    });
+    return html;
+  };
+
+  const photoBody = (pg) => {
+    let html = '';
     L.cells.forEach((cell, ci) => {
-      const photo = photos[ci];
+      const photo = pg.photos[ci];
       if (!photo) {
         if (!state.photos.length) html += `<div class="pg-slot" style="${pct(cell.img)}"></div>`;
         return;
       }
-      const n = number(pi * L.cells.length + ci);
       html += `<img class="pg-img" src="${urlFor(photo.id)}" style="${pct(fit(cell.img, photo.w, photo.h))}" alt="">`;
-      const c = captionParts(s, photo, n, cell.cap);
+      const c = captionParts(s, photo, number(pg.first + ci), cell.cap);
       html += `<div class="pg-cap" style="${pct(cell.cap)}">`
         + `<div class="l1" style="${fs(FONT.capHead)}line-height:1.3;">${esc(c.head)}${c.extra ? ` <span>&nbsp;&nbsp;${esc(c.extra)}</span>` : ''}</div>`
         + c.lines.map((l) => `<div class="d" style="${fs(FONT.cap)}line-height:${(LINE.cap / (FONT.cap * PT)).toFixed(3)};">${esc(l)}</div>`).join('')
         + `</div>`;
     });
+    return html;
+  };
 
-    html += `<div class="pg-rule" style="${pct({ x: L.M, y: L.footer.y, w: L.footer.w, h: 0.25 })}"></div>`;
-    html += `<div class="pg-foot" style="${at(L.M, L.footer.y + 1.6, L.footer.w * 0.7, fs(FONT.foot))}">${esc(s.footer || '')}</div>`;
-    html += `<div class="pg-foot" style="${at(L.M + L.footer.w * 0.7, L.footer.y + 1.6, L.footer.w * 0.3, fs(FONT.foot) + 'text-align:right;')}">Page ${pi + 1} of ${total}</div>`;
-    return html + '</div>';
-  }).join('');
+  $('#pageCount').textContent = state.photos.length ? `(${total} page${total === 1 ? '' : 's'})` : '';
+  $('#pages').innerHTML = all.map((pg, pi) => `<div class="page" style="aspect-ratio:${L.W}/${L.H}">`
+    + header() + (pg.kind === 'index' ? indexBody(pg) : photoBody(pg)) + footer(pi + 1) + '</div>').join('');
 }
 
 // ---------- PDF export ----------
@@ -995,6 +1043,7 @@ async function exportPdf() {
   try {
     const s = state.settings;
     const L = layout(s);
+    const IL = indexLayout(L, s);
     const orientation = L.W > L.H ? 'landscape' : 'portrait';
     const doc = new jspdf.jsPDF({ unit: 'mm', format: [L.W, L.H], orientation, compress: true });
     doc.setProperties({ title: s.title || 'Photo Sheet', creator: 'PhotoSheet' });
@@ -1002,22 +1051,20 @@ async function exportPdf() {
     const fields = headerFields(s);
     const colW = L.textW / 2;
     const logo = L.logo ? await bytes(s.logoId) : null;
+    const base = (top, pt) => top + pt * PT * 0.95; // baseline for text whose top is at `top`
     const clip = (text, w) => { // shorten a single line to fit the width
       if (doc.getTextWidth(text) <= w) return text;
       while (text.length > 1 && doc.getTextWidth(text + '…') > w) text = text.slice(0, -1);
       return text + '…';
     };
 
-    for (let pi = 0; pi < all.length; pi++) {
-      toast(`Building page ${pi + 1} of ${all.length}…`, 0);
-      if (pi > 0) doc.addPage([L.W, L.H], orientation);
-      // Header
+    const drawHeader = () => {
       doc.setTextColor(17);
       doc.setFont('helvetica', 'bold'); doc.setFontSize(FONT.title);
-      doc.text(clip(s.title || '', L.textW), L.textX, L.M + FONT.title * PT * 0.95);
+      doc.text(clip(s.title || '', L.textW), L.textX, base(L.M, FONT.title));
       doc.setFontSize(FONT.field);
       fields.forEach(([k, v], i) => {
-        const x = L.textX + (i % 2) * colW, y = L.M + 8 + Math.floor(i / 2) * 4.4 + FONT.field * PT * 0.95;
+        const x = L.textX + (i % 2) * colW, y = base(L.M + 8 + Math.floor(i / 2) * 4.4, FONT.field);
         doc.setFont('helvetica', 'bold'); doc.setTextColor(85);
         const label = `${k}: `;
         doc.text(label, x, y);
@@ -1028,17 +1075,52 @@ async function exportPdf() {
       if (logo) doc.addImage(logo, 'PNG', L.logo.x, L.logo.y, L.logo.w, L.logo.h, 'logo', 'FAST');
       doc.setDrawColor(34); doc.setLineWidth(0.5);
       doc.line(L.M, L.header.y + L.header.h - 0.25, L.M + L.header.w, L.header.y + L.header.h - 0.25);
+    };
 
-      // Photos
-      const photos = all[pi];
-      for (let ci = 0; ci < photos.length; ci++) {
-        const photo = photos[ci], cell = L.cells[ci];
-        const n = number(pi * L.cells.length + ci);
+    const drawFooter = (pageNo) => {
+      doc.setDrawColor(34); doc.setLineWidth(0.25);
+      doc.line(L.M, L.footer.y, L.M + L.footer.w, L.footer.y);
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(FONT.foot); doc.setTextColor(68);
+      const fy = base(L.footer.y + 1.6, FONT.foot);
+      if (s.footer) doc.text(clip(s.footer, L.footer.w * 0.7), L.M, fy);
+      doc.text(`Page ${pageNo} of ${all.length}`, L.M + L.footer.w, fy, { align: 'right' });
+    };
+
+    const drawIndex = (pg) => {
+      const c = IL.cols;
+      doc.setTextColor(17);
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(INDEX.heading);
+      doc.text('Photo Index', L.body.x, base(L.body.y, INDEX.heading));
+      doc.setFontSize(INDEX.headPt);
+      const hy = base(IL.top + 1.2, INDEX.headPt);
+      doc.text('No.', c.no, hy);
+      doc.text('Description', c.desc, hy);
+      if (s.showDate) doc.text('Date taken', c.date, hy);
+      doc.text('Page', c.pageRight, hy, { align: 'right' });
+      doc.setDrawColor(34); doc.setLineWidth(0.35);
+      doc.line(L.body.x, IL.rowsTop - 0.45, L.body.x + L.body.w, IL.rowsTop - 0.45);
+      doc.setFontSize(INDEX.rowPt);
+      pg.rows.forEach((r, i) => {
+        const top = IL.rowsTop + i * INDEX.rowH + 1.4, y = base(top, INDEX.rowPt);
+        doc.setFont('helvetica', 'bold'); doc.text(String(r.n), c.no, y);
+        doc.setFont('helvetica', 'normal');
+        wrap(r.photo.caption, IL.descW, INDEX.rowPt, 2).forEach((l, li) => doc.text(l, c.desc, y + li * INDEX.line));
+        if (s.showDate && r.photo.taken) doc.text(clip(r.photo.taken, IL.dateW), c.date, y);
+        doc.text(String(r.page), c.pageRight, y, { align: 'right' });
+        const ly = IL.rowsTop + (i + 1) * INDEX.rowH - 0.33;
+        doc.setDrawColor(204); doc.setLineWidth(0.15);
+        doc.line(L.body.x, ly, L.body.x + L.body.w, ly);
+      });
+    };
+
+    const drawPhotos = async (pg) => {
+      for (let ci = 0; ci < pg.photos.length; ci++) {
+        const photo = pg.photos[ci], cell = L.cells[ci];
         const r = fit(cell.img, photo.w, photo.h);
         doc.addImage(await bytes(photo.id), 'JPEG', r.x, r.y, r.w, r.h, photo.id, 'NONE');
         doc.setDrawColor(200); doc.setLineWidth(0.2); doc.rect(r.x, r.y, r.w, r.h);
 
-        const c = captionParts(s, photo, n, cell.cap);
+        const c = captionParts(s, photo, number(pg.first + ci), cell.cap);
         let y = cell.cap.y + FONT.capHead * PT * 1.05;
         doc.setFont('helvetica', 'bold'); doc.setFontSize(FONT.capHead); doc.setTextColor(17);
         doc.text(c.head, cell.cap.x, y);
@@ -1051,14 +1133,14 @@ async function exportPdf() {
         y += 1.0;
         for (const line of c.lines) { y += LINE.cap; doc.text(line, cell.cap.x, y); }
       }
+    };
 
-      // Footer
-      doc.setDrawColor(34); doc.setLineWidth(0.25);
-      doc.line(L.M, L.footer.y, L.M + L.footer.w, L.footer.y);
-      doc.setFont('helvetica', 'normal'); doc.setFontSize(FONT.foot); doc.setTextColor(68);
-      const fy = L.footer.y + 1.6 + FONT.foot * PT * 0.95;
-      if (s.footer) doc.text(clip(s.footer, L.footer.w * 0.7), L.M, fy);
-      doc.text(`Page ${pi + 1} of ${all.length}`, L.M + L.footer.w, fy, { align: 'right' });
+    for (let pi = 0; pi < all.length; pi++) {
+      toast(`Building page ${pi + 1} of ${all.length}…`, 0);
+      if (pi > 0) doc.addPage([L.W, L.H], orientation);
+      drawHeader();
+      if (all[pi].kind === 'index') drawIndex(all[pi]); else await drawPhotos(all[pi]);
+      drawFooter(pi + 1);
       await new Promise((r) => setTimeout(r)); // keep the page responsive
     }
 
