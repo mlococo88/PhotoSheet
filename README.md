@@ -22,7 +22,9 @@ Everything runs on your device. Photos are never uploaded anywhere.
    from the photo's EXIF data when it's there, and you can edit it.
 5. **Project info** (button above the preview): title, project, location,
    client, date and prepared by. **Header & page**: your company logo (top-left
-   corner, with a size slider), footer text, paper (Letter, A4, Legal),
+   corner, with a size slider), a theme for the header and footer (Classic,
+   Banded, Title block or Minimal, with an accent colour for Banded and Title
+   block), footer text, paper (Letter, A4, Legal),
    orientation, photos per page (1, 2, 3, 4, 6 or 8), the first photo number,
    and what to show. Both open in a window you close with *Done*; the preview
    updates as you type.

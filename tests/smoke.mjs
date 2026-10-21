@@ -99,6 +99,18 @@ try {
   const small = await page.locator('#pages .pg-logo').first().boundingBox();
   check(small.width < logoBox.width * 0.6, 'logo size slider shrinks the logo');
 
+  // Every theme draws a header and footer in the preview, and exports.
+  for (const theme of ['banded', 'titleblock', 'minimal', 'classic']) {
+    await settings(page, 'layoutDlg', () => page.selectOption('[data-key=theme]', theme));
+    await page.waitForTimeout(250);
+    const text = await page.textContent('#pages .page');
+    check(text.includes('Site Visit') && text.includes('Page 1 of 2'), `${theme} theme shows header and footer`);
+    if (theme === 'titleblock') {
+      const [d] = await Promise.all([page.waitForEvent('download'), page.click('#exportBtn')]);
+      check(((await readFile(await d.path())).toString('latin1').match(/\/Type \/Page\b/g) || []).length === 2, 'title block theme exports');
+    }
+  }
+
   // Unticking "Include in report" leaves a photo out of the preview and renumbers the rest.
   await page.uncheck('#list .item:nth-child(2) [data-include]');
   await page.waitForTimeout(300);
