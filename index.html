@@ -177,6 +177,20 @@
     /* Over the photo list, leaving the preview on the right in view while you type. */
     dialog.settings { margin: 64px 0 0 16px; width: min(460px, calc(46vw - 32px)); max-height: calc(100vh - 88px); }
   }
+  /* Markup editor: full screen, dark around the photo */
+  dialog.markup { width: 100vw; height: 100vh; height: 100dvh; max-width: none; max-height: none; margin: 0; padding: 0; border: 0; background: #0f1318; color: #fff; }
+  dialog.markup[open] { display: flex; flex-direction: column; }
+  .mk-bar { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; padding: 10px 12px; background: #1c2430; }
+  .mk-group { display: flex; gap: 4px; align-items: center; flex-wrap: wrap; }
+  .mk-end { margin-left: auto; }
+  .mk-btn { border: 1px solid #3b4757; background: #2b3644; color: #fff; padding: 6px 10px; border-radius: 8px; font-size: 14px; cursor: pointer; }
+  .mk-btn[aria-pressed="true"] { background: #4c8dff; border-color: #4c8dff; color: #0b1220; font-weight: 600; }
+  .mk-done { background: #4c8dff; border-color: #4c8dff; color: #0b1220; font-weight: 700; }
+  .mk-swatch { width: 28px; height: 28px; border-radius: 50%; border: 2px solid #3b4757; cursor: pointer; padding: 0; }
+  .mk-swatch[aria-pressed="true"] { outline: 3px solid #4c8dff; outline-offset: 2px; }
+  .mk-stage { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; padding: 12px; }
+  #mkCanvas { touch-action: none; cursor: crosshair; box-shadow: 0 4px 30px rgba(0,0,0,.5); }
+  .btn.marked { border-color: var(--accent); color: var(--accent); }
   dialog#reports {
     width: min(560px, calc(100vw - 32px)); max-height: calc(100vh - 48px); padding: 0; border: 1px solid var(--line);
     border-radius: 14px; background: var(--panel); color: var(--ink); box-shadow: 0 20px 60px rgba(0,0,0,.35);
@@ -313,10 +327,50 @@
         </select>
       </label>
       <label>First photo number<input type="number" min="0" data-key="startNumber" data-type="number"></label>
+      <label class="wide">PDF photo quality
+        <select data-key="pdfQuality">
+          <option value="full">Full: sharpest, largest file</option>
+          <option value="email">Email-friendly: much smaller, still clear</option>
+          <option value="small">Smallest: for big reports or slow connections</option>
+        </select>
+      </label>
       <label class="check wide"><input type="checkbox" data-key="showDate" data-type="bool"> Show date taken</label>
       <label class="check wide"><input type="checkbox" data-key="showFileName" data-type="bool"> Show file name</label>
       <label class="check wide"><input type="checkbox" data-key="includeIndex" data-type="bool"> Include photo index at the front</label>
     </div>
+  </dialog>
+
+  <dialog class="markup" id="markupDlg" aria-label="Mark up photo">
+    <div class="mk-bar">
+      <div class="mk-group" role="group" aria-label="Tool">
+        <button type="button" class="mk-btn" data-tool="arrow" title="Arrow">↗ Arrow</button>
+        <button type="button" class="mk-btn" data-tool="ellipse" title="Circle">◯ Circle</button>
+        <button type="button" class="mk-btn" data-tool="rect" title="Box">▭ Box</button>
+        <button type="button" class="mk-btn" data-tool="pen" title="Freehand">✎ Pen</button>
+        <button type="button" class="mk-btn" data-tool="text" title="Text: tap where it goes">T Text</button>
+      </div>
+      <div class="mk-group" role="group" aria-label="Colour">
+        <button type="button" class="mk-swatch" data-color="#e53935" style="background:#e53935" aria-label="Red"></button>
+        <button type="button" class="mk-swatch" data-color="#ffd600" style="background:#ffd600" aria-label="Yellow"></button>
+        <button type="button" class="mk-swatch" data-color="#2979ff" style="background:#2979ff" aria-label="Blue"></button>
+        <button type="button" class="mk-swatch" data-color="#ffffff" style="background:#ffffff" aria-label="White"></button>
+        <button type="button" class="mk-swatch" data-color="#111111" style="background:#111111" aria-label="Black"></button>
+      </div>
+      <div class="mk-group" role="group" aria-label="Size">
+        <button type="button" class="mk-btn" data-size="1">S</button>
+        <button type="button" class="mk-btn" data-size="2">M</button>
+        <button type="button" class="mk-btn" data-size="3">L</button>
+      </div>
+      <div class="mk-group">
+        <button type="button" class="mk-btn" id="mkUndo">Undo</button>
+        <button type="button" class="mk-btn" id="mkClear">Clear</button>
+      </div>
+      <div class="mk-group mk-end">
+        <button type="button" class="mk-btn" id="mkCancel">Cancel</button>
+        <button type="button" class="mk-btn mk-done" id="mkDone">Done</button>
+      </div>
+    </div>
+    <div class="mk-stage" id="mkStage"><canvas id="mkCanvas"></canvas></div>
   </dialog>
 
   <dialog id="reports" aria-labelledby="reportsTitle">
@@ -356,7 +410,7 @@ const today = () => new Date().toISOString().slice(0, 10);
 const DEFAULTS = {
   title: 'Photo Log', project: '', location: '', client: '', date: today(), preparedBy: '', footer: '',
   pageSize: 'letter', orientation: 'portrait', perPage: 2, startNumber: 1,
-  showDate: true, showFileName: false, logoId: null, logoW: 0, logoH: 0, logoScale: 70, includeIndex: false, theme: 'classic', accent: '#1f3a5f',
+  showDate: true, showFileName: false, logoId: null, logoW: 0, logoH: 0, logoScale: 70, includeIndex: false, theme: 'classic', accent: '#1f3a5f', pdfQuality: 'full',
 };
 
 let state = { id: null, shareId: null, settings: { ...DEFAULTS }, photos: [] }; // photos: {id, name, caption, taken, w, h}
@@ -372,6 +426,9 @@ function urlFor(id) {
   if (!urls.has(id) && blobs.has(id)) urls.set(id, URL.createObjectURL(blobs.get(id)));
   return urls.get(id) || '';
 }
+// The image to show and print: the marked-up copy when there is one.
+const shownId = (p) => (p.markedId && blobs.has(p.markedId) ? p.markedId : p.id);
+const photoBlobIds = (p) => [p.id, p.markedId].filter(Boolean);
 function dropBlob(id) {
   if (urls.has(id)) URL.revokeObjectURL(urls.get(id));
   urls.delete(id); blobs.delete(id);
@@ -448,7 +505,7 @@ async function loadReport(id) {
     releaseBlobs();
     // shareId stays the same across exports and imports, so a report sent back can replace its original.
     state = { id, shareId: saved.shareId || uid(), settings: { ...DEFAULTS, ...saved.settings }, photos: saved.photos || [] };
-    const ids = [...state.photos.map((p) => p.id), state.settings.logoId].filter(Boolean);
+    const ids = [...state.photos.flatMap(photoBlobIds), state.settings.logoId].filter(Boolean);
     for (const bid of ids) {
       const b = await idb('blobs', 'get', bid);
       if (b) blobs.set(bid, b);
@@ -464,7 +521,7 @@ async function loadReport(id) {
 }
 
 // Settings a new report carries over from the one open now (company details, not job details).
-const CARRY = ['theme', 'accent', 'logoScale', 'includeIndex', 'footer', 'preparedBy', 'pageSize', 'orientation', 'perPage', 'showDate', 'showFileName'];
+const CARRY = ['pdfQuality', 'theme', 'accent', 'logoScale', 'includeIndex', 'footer', 'preparedBy', 'pageSize', 'orientation', 'perPage', 'showDate', 'showFileName'];
 
 async function createReport() {
   const prev = state.settings;
@@ -485,7 +542,7 @@ async function deleteReport(id) {
   if (raw) {
     try {
       const r = JSON.parse(raw);
-      for (const bid of [...(r.photos || []).map((p) => p.id), r.settings && r.settings.logoId].filter(Boolean)) {
+      for (const bid of [...(r.photos || []).flatMap(photoBlobIds), r.settings && r.settings.logoId].filter(Boolean)) {
         await idb('blobs', 'delete', bid);
       }
     } catch { /* ignore a damaged entry */ }
@@ -636,7 +693,8 @@ async function importReportFile(f) {
       remap[old] = id;
     }
     const settings = { ...DEFAULTS, ...data.report.settings, logoId: remap[data.report.settings.logoId] || null };
-    const photos = (data.report.photos || []).filter((p) => remap[p.id]).map((p) => ({ ...p, id: remap[p.id] }));
+    const photos = (data.report.photos || []).filter((p) => remap[p.id])
+      .map((p) => ({ ...p, id: remap[p.id], markedId: remap[p.markedId] || undefined }));
     if (saveTimer) await flushSave();
     const id = uid();
     await idb('meta', 'put', 'report:' + id, JSON.stringify({ id, shareId, settings, photos }));
@@ -676,7 +734,7 @@ function canvasBlob(canvas, type, quality) {
 }
 
 // Draw onto a canvas (scaled to maxEdge, optionally rotated by 90° steps) and re-encode.
-async function render(src, { maxEdge = MAX_EDGE, rotate = 0, type = 'image/jpeg' } = {}) {
+async function render(src, { maxEdge = MAX_EDGE, rotate = 0, type = 'image/jpeg', quality = JPEG_QUALITY } = {}) {
   const [sw, sh] = dims(src);
   const scale = Math.min(1, maxEdge / Math.max(sw, sh));
   const w = Math.round(sw * scale), h = Math.round(sh * scale);
@@ -688,7 +746,7 @@ async function render(src, { maxEdge = MAX_EDGE, rotate = 0, type = 'image/jpeg'
   ctx.translate(canvas.width / 2, canvas.height / 2);
   ctx.rotate((rotate * Math.PI) / 180);
   ctx.drawImage(src, -w / 2, -h / 2, w, h);
-  const blob = await canvasBlob(canvas, type, JPEG_QUALITY);
+  const blob = await canvasBlob(canvas, type, quality);
   return { blob, w: canvas.width, h: canvas.height };
 }
 
@@ -797,13 +855,14 @@ function renderList() {
   list.innerHTML = state.photos.map((p, i) => `
     <li class="item${p.exclude ? ' excluded' : ''}" data-id="${p.id}">
       <div class="handle" title="Drag to reorder" aria-hidden="true">⋮⋮</div>
-      <img class="thumb" src="${urlFor(p.id)}" alt="">
+      <img class="thumb" src="${urlFor(shownId(p))}" alt="">
       <div class="fields">
         <div class="meta">
           <span class="num">${numLabel(nums[i])}</span>
           <span class="fname" title="${esc(p.name)}">${esc(p.name)}</span>
           <button class="btn icon small" type="button" data-act="up" title="Move up" aria-label="Move up" ${i === 0 ? 'disabled' : ''}>↑</button>
           <button class="btn icon small" type="button" data-act="down" title="Move down" aria-label="Move down" ${i === n - 1 ? 'disabled' : ''}>↓</button>
+          <button class="btn icon small${p.marks && p.marks.length ? ' marked' : ''}" type="button" data-act="markup" title="Mark up: draw arrows, circles and text" aria-label="Mark up">✎</button>
           <button class="btn icon small" type="button" data-act="rotate" title="Rotate 90°" aria-label="Rotate">⟳</button>
           <button class="btn icon small danger" type="button" data-act="remove" title="Remove" aria-label="Remove">✕</button>
         </div>
@@ -843,6 +902,11 @@ async function rotate(photo) {
     blobs.set(photo.id, blob);
     photo.w = w; photo.h = h;
     await idb('blobs', 'put', photo.id, blob);
+    if (photo.marks && photo.marks.length) { // turn the markup with the photo (90° clockwise)
+      const turn = ([x, y]) => [1 - y, x];
+      photo.marks = photo.marks.map((m) => ({ ...m, pts: m.pts.map(turn) }));
+      await saveMarkup(photo, photo.marks);
+    }
     save(); renderList(); schedulePreview();
   } catch (e) { console.error(e); toast('Could not rotate that photo.'); }
 }
@@ -856,9 +920,10 @@ $('#list').addEventListener('click', (e) => {
   const act = btn.dataset.act;
   if (act === 'up' || act === 'down') { move(i, act === 'up' ? i - 1 : i + 1); renderList(); }
   else if (act === 'rotate') rotate(state.photos[i]);
+  else if (act === 'markup') openMarkup(state.photos[i]);
   else if (act === 'remove') {
-    state.photos.splice(i, 1);
-    dropBlob(id);
+    const [gone] = state.photos.splice(i, 1);
+    photoBlobIds(gone).forEach(dropBlob);
     save(); renderList(); schedulePreview();
   }
 });
@@ -893,7 +958,7 @@ $('#sortDate').onclick = () => {
 };
 $('#clearAll').onclick = () => {
   if (!confirm(`Remove all ${state.photos.length} photos from this sheet?`)) return;
-  for (const p of state.photos) dropBlob(p.id);
+  for (const p of state.photos) photoBlobIds(p).forEach(dropBlob);
   state.photos = [];
   save(); renderList(); schedulePreview();
 };
@@ -1306,7 +1371,7 @@ function renderPreview() {
         if (!pg.photos.length) html += `<div class="pg-slot" style="${pct(cell.img)}"></div>`;
         return;
       }
-      html += `<img class="pg-img" src="${urlFor(photo.id)}" style="${pct(fit(cell.img, photo.w, photo.h))}" alt="">`;
+      html += `<img class="pg-img" src="${urlFor(shownId(photo))}" style="${pct(fit(cell.img, photo.w, photo.h))}" alt="">`;
       const c = captionParts(s, photo, number(pg.first + ci), cell.cap);
       html += `<div class="pg-cap" style="${pct(cell.cap)}">`
         + `<div class="l1" style="${fs(FONT.capHead)}line-height:1.3;">${esc(c.head)}${c.extra ? ` <span>&nbsp;&nbsp;${esc(c.extra)}</span>` : ''}</div>`
@@ -1321,9 +1386,162 @@ function renderPreview() {
     + header() + (pg.kind === 'index' ? indexBody(pg) : photoBody(pg)) + footer(pi + 1) + '</div>').join('');
 }
 
+// ---------- Photo markup ----------
+// Marks are kept with the photo in 0–1 coordinates ({type, color, size, pts}), so they can be edited
+// later; a marked-up copy of the photo (markedId) is what the list, preview and PDF show.
+const MK_LINE = { 1: 0.0045, 2: 0.0075, 3: 0.012 }; // line width, as a fraction of the photo's shorter side
+const MK_TEXT = { 1: 0.035, 2: 0.05, 3: 0.07 };     // text height, likewise
+
+function drawMarks(ctx, marks, W, H) {
+  const u = Math.min(W, H);
+  for (const m of marks) {
+    const P = m.pts.map(([x, y]) => [x * W, y * H]);
+    const lw = MK_LINE[m.size] * u;
+    ctx.save();
+    ctx.strokeStyle = ctx.fillStyle = m.color;
+    ctx.lineWidth = lw; ctx.lineCap = ctx.lineJoin = 'round';
+    ctx.shadowColor = 'rgba(0,0,0,.45)'; ctx.shadowBlur = lw * 1.2; // keeps light colours visible on light photos
+    ctx.beginPath();
+    if (m.type === 'arrow' && P.length > 1) {
+      const [[x1, y1], [x2, y2]] = P, a = Math.atan2(y2 - y1, x2 - x1), head = Math.max(lw * 4, u * 0.03);
+      ctx.moveTo(x1, y1); ctx.lineTo(x2, y2);
+      ctx.moveTo(x2 - head * Math.cos(a - 0.5), y2 - head * Math.sin(a - 0.5)); ctx.lineTo(x2, y2);
+      ctx.lineTo(x2 - head * Math.cos(a + 0.5), y2 - head * Math.sin(a + 0.5));
+      ctx.stroke();
+    } else if ((m.type === 'ellipse' || m.type === 'rect') && P.length > 1) {
+      const [[x1, y1], [x2, y2]] = P, x = Math.min(x1, x2), y = Math.min(y1, y2), w = Math.abs(x2 - x1), h = Math.abs(y2 - y1);
+      if (m.type === 'rect') ctx.rect(x, y, w, h); else ctx.ellipse(x + w / 2, y + h / 2, w / 2, h / 2, 0, 0, Math.PI * 2);
+      ctx.stroke();
+    } else if (m.type === 'pen') {
+      P.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
+      ctx.stroke();
+    } else if (m.type === 'text' && m.text) {
+      const px = MK_TEXT[m.size] * u;
+      ctx.font = `bold ${px}px Helvetica, Arial, sans-serif`;
+      ctx.textBaseline = 'middle';
+      ctx.shadowBlur = 0;
+      ctx.lineWidth = px * 0.16; ctx.strokeStyle = onColor(m.color).text === '#111111' ? '#111111' : '#ffffff';
+      ctx.strokeText(m.text, P[0][0], P[0][1]);
+      ctx.fillText(m.text, P[0][0], P[0][1]);
+    }
+    ctx.restore();
+  }
+}
+
+// Draw the marks onto the full-size photo and store that as the photo's marked-up copy.
+async function saveMarkup(photo, marks) {
+  if (photo.markedId) dropBlob(photo.markedId);
+  delete photo.markedId;
+  photo.marks = marks;
+  if (!marks.length) { delete photo.marks; return; }
+  const src = await decode(blobs.get(photo.id));
+  const canvas = document.createElement('canvas');
+  [canvas.width, canvas.height] = dims(src);
+  const ctx = canvas.getContext('2d');
+  ctx.drawImage(src, 0, 0);
+  if (src.close) src.close();
+  drawMarks(ctx, marks, canvas.width, canvas.height);
+  const blob = await canvasBlob(canvas, 'image/jpeg', JPEG_QUALITY);
+  const id = 'mk-' + uid();
+  blobs.set(id, blob);
+  await idb('blobs', 'put', id, blob);
+  photo.markedId = id;
+}
+
+const mk = { photo: null, img: null, marks: [], draft: null, tool: 'arrow', color: '#e53935', size: 2 };
+function mkPick(attr, value) {
+  document.querySelectorAll(`#markupDlg [data-${attr}]`).forEach((b) => b.setAttribute('aria-pressed', String(b.dataset[attr] === String(value))));
+}
+function mkFit() { // size the canvas to the space available, keeping the photo's shape
+  const stage = $('#mkStage'), c = $('#mkCanvas'), [iw, ih] = dims(mk.img);
+  const k = Math.min((stage.clientWidth - 24) / iw, (stage.clientHeight - 24) / ih);
+  c.style.width = `${Math.floor(iw * k)}px`; c.style.height = `${Math.floor(ih * k)}px`;
+  c.width = Math.floor(iw * k * devicePixelRatio); c.height = Math.floor(ih * k * devicePixelRatio);
+  mkDraw();
+}
+function mkDraw() {
+  const c = $('#mkCanvas'), ctx = c.getContext('2d');
+  ctx.drawImage(mk.img, 0, 0, c.width, c.height);
+  drawMarks(ctx, mk.draft ? [...mk.marks, mk.draft] : mk.marks, c.width, c.height);
+}
+async function openMarkup(photo) {
+  try {
+    mk.photo = photo;
+    mk.img = await decode(blobs.get(photo.id));
+    mk.marks = (photo.marks || []).map((m) => ({ ...m, pts: m.pts.map((p) => [...p]) }));
+    mk.draft = null;
+    mkPick('tool', mk.tool); mkPick('color', mk.color); mkPick('size', mk.size);
+    $('#markupDlg').showModal();
+    requestAnimationFrame(mkFit);
+  } catch (e) { console.error(e); toast('Could not open that photo for markup.'); }
+}
+function mkClose() {
+  $('#markupDlg').close();
+  if (mk.img && mk.img.close) mk.img.close();
+  mk.img = null; mk.photo = null;
+}
+const mkPoint = (e) => {
+  const r = $('#mkCanvas').getBoundingClientRect();
+  return [Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)), Math.min(1, Math.max(0, (e.clientY - r.top) / r.height))];
+};
+
+$('#mkCanvas').addEventListener('pointerdown', (e) => {
+  if (!mk.img) return;
+  e.preventDefault();
+  const p = mkPoint(e);
+  if (mk.tool === 'text') {
+    const text = prompt('Text to place on the photo:');
+    if (text && text.trim()) { mk.marks.push({ type: 'text', color: mk.color, size: mk.size, pts: [p], text: text.trim() }); mkDraw(); }
+    return;
+  }
+  $('#mkCanvas').setPointerCapture(e.pointerId);
+  mk.draft = { type: mk.tool, color: mk.color, size: mk.size, pts: [p, p] };
+});
+$('#mkCanvas').addEventListener('pointermove', (e) => {
+  if (!mk.draft) return;
+  const p = mkPoint(e);
+  if (mk.draft.type === 'pen') mk.draft.pts.push(p); else mk.draft.pts[1] = p;
+  mkDraw();
+});
+const mkEnd = () => {
+  if (!mk.draft) return;
+  const d = mk.draft, [a, b] = [d.pts[0], d.pts[d.pts.length - 1]];
+  if (d.type === 'pen' ? d.pts.length > 2 : Math.hypot(b[0] - a[0], b[1] - a[1]) > 0.01) mk.marks.push(d);
+  mk.draft = null;
+  mkDraw();
+};
+$('#mkCanvas').addEventListener('pointerup', mkEnd);
+$('#mkCanvas').addEventListener('pointercancel', mkEnd);
+document.querySelectorAll('#markupDlg [data-tool]').forEach((b) => { b.onclick = () => { mk.tool = b.dataset.tool; mkPick('tool', mk.tool); }; });
+document.querySelectorAll('#markupDlg [data-color]').forEach((b) => { b.onclick = () => { mk.color = b.dataset.color; mkPick('color', mk.color); }; });
+document.querySelectorAll('#markupDlg [data-size]').forEach((b) => { b.onclick = () => { mk.size = Number(b.dataset.size); mkPick('size', mk.size); }; });
+$('#mkUndo').onclick = () => { mk.marks.pop(); mkDraw(); };
+$('#mkClear').onclick = () => { mk.marks = []; mkDraw(); };
+$('#mkCancel').onclick = mkClose;
+$('#markupDlg').addEventListener('cancel', (e) => { e.preventDefault(); mkClose(); });
+$('#mkDone').onclick = async () => {
+  const photo = mk.photo, marks = mk.marks;
+  mkClose();
+  try {
+    await saveMarkup(photo, marks);
+    save(); renderList(); schedulePreview();
+  } catch (e) { console.error(e); toast('Could not save the markup.'); }
+};
+window.addEventListener('resize', () => { if (mk.img) mkFit(); });
+
 // ---------- PDF export ----------
 const safeName = (t) => (t || 'photo-sheet').trim().replace(/[\\/:*?"<>|]+/g, '-').slice(0, 80) || 'photo-sheet';
 async function bytes(id) { return new Uint8Array(await blobs.get(id).arrayBuffer()); }
+// Smaller PDFs: photos are scaled down and compressed harder as they go into the PDF (the saved photos are untouched).
+const PDF_QUALITY = { email: { maxEdge: 1600, quality: 0.75 }, small: { maxEdge: 1100, quality: 0.62 } };
+async function pdfPhotoBytes(photo, level) {
+  const opts = PDF_QUALITY[level];
+  if (!opts) return bytes(shownId(photo));
+  const src = await decode(blobs.get(shownId(photo)));
+  const { blob } = await render(src, opts);
+  if (src.close) src.close();
+  return new Uint8Array(await blob.arrayBuffer());
+}
 
 async function exportPdf() {
   if (!state.photos.length) { toast('Add some photos first.'); return; }
@@ -1396,7 +1614,7 @@ async function exportPdf() {
       for (let ci = 0; ci < pg.photos.length; ci++) {
         const photo = pg.photos[ci], cell = L.cells[ci];
         const r = fit(cell.img, photo.w, photo.h);
-        doc.addImage(await bytes(photo.id), 'JPEG', r.x, r.y, r.w, r.h, photo.id, 'NONE');
+        doc.addImage(await pdfPhotoBytes(photo, s.pdfQuality), 'JPEG', r.x, r.y, r.w, r.h, shownId(photo), 'NONE');
         doc.setDrawColor(200); doc.setLineWidth(0.2); doc.rect(r.x, r.y, r.w, r.h);
 
         const c = captionParts(s, photo, number(pg.first + ci), cell.cap);
@@ -1423,8 +1641,14 @@ async function exportPdf() {
       await new Promise((r) => setTimeout(r)); // keep the page responsive
     }
 
-    doc.save(`${safeName(s.title)}.pdf`);
-    toast('PDF saved.');
+    const pdf = doc.output('blob');
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(pdf);
+    a.download = `${safeName(s.title)}.pdf`;
+    document.body.append(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 30000);
+    const mb = pdf.size / 1048576;
+    toast(`PDF saved (${mb < 0.1 ? '<0.1' : mb.toFixed(1)} MB).${mb > 20 && s.pdfQuality === 'full' ? ' For email, try Header & page → PDF photo quality → Email-friendly.' : ''}`, 5000);
   } catch (e) {
     console.error(e);
     toast('Could not build the PDF: ' + (e.message || e), 6000);

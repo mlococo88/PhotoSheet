@@ -18,20 +18,26 @@ Everything runs on your device. Photos are never uploaded anywhere.
 3. **Include or leave out**: untick *Include in report* on a photo to keep it in
    the list but leave it out of the PDF, the photo index and the numbering.
    Tick it again to put it back.
-4. **Describe**: type a description under each photo. The date taken is read
+4. **Mark up**: tap ✎ on a photo to draw arrows, circles, boxes, freehand
+   lines and text labels on it, in red, yellow, blue, white or black and three
+   sizes. *Undo* takes back the last mark. The original photo is kept, so you
+   can reopen the markup later to change or clear it.
+5. **Describe**: type a description under each photo. The date taken is read
    from the photo's EXIF data when it's there, and you can edit it.
-5. **Project info** (button above the preview): title, project, location,
+6. **Project info** (button above the preview): title, project, location,
    client, date and prepared by. **Header & page**: your company logo (top-left
    corner, with a size slider), a theme for the header and footer (Classic,
    Banded, Title block, Minimal, Accent line, Centered, Corporate or Outlined;
    most take an accent colour), footer text, paper (Letter, A4, Legal),
    orientation, photos per page (1, 2, 3, 4, 6 or 8), the first photo number,
+   PDF photo quality (Full, Email-friendly or Smallest; in a test, 10 photos
+   came to about 12.7 MB, 2.2 MB and 1 MB),
    and what to show. Both open in a window you close with *Done*; the preview
    updates as you type.
-6. **Photo index**: tick *Include photo index at the front* to start the PDF
+7. **Photo index**: tick *Include photo index at the front* to start the PDF
    with a table of every photo: number, description, date taken and the page
    it's on. Untick it to leave the index out.
-7. **Preview** shows the pages exactly as they'll print. **Export PDF** saves
+8. **Preview** shows the pages exactly as they'll print. **Export PDF** saves
    the file.
 
 ## Reports

@@ -136,6 +136,33 @@ try {
   await page.waitForTimeout(300);
   check(await page.locator('#pages .page').count() === 2, 'unticking removes the index');
 
+  // Markup: draw an arrow and a text label on photo 1, undo, redraw, keep it through a rotate.
+  const thumbBefore = await page.getAttribute('#list .item:nth-child(1) .thumb', 'src');
+  await page.click('#list .item:nth-child(1) [data-act=markup]');
+  await page.waitForSelector('#markupDlg[open]');
+  const box = await page.locator('#mkCanvas').boundingBox();
+  const drag = async (x1, y1, x2, y2) => {
+    await page.mouse.move(box.x + box.width * x1, box.y + box.height * y1);
+    await page.mouse.down();
+    await page.mouse.move(box.x + box.width * x2, box.y + box.height * y2, { steps: 5 });
+    await page.mouse.up();
+  };
+  await drag(0.2, 0.2, 0.6, 0.6);
+  await page.click('[data-tool=ellipse]');
+  await drag(0.5, 0.5, 0.8, 0.8);
+  await page.click('#mkUndo');
+  await page.click('[data-tool=text]');
+  page.once('dialog', (d) => d.accept('Crack'));
+  await page.mouse.click(box.x + box.width * 0.3, box.y + box.height * 0.8);
+  await page.click('#mkDone');
+  await page.waitForFunction(() => state.photos[0].markedId && blobs.has(state.photos[0].markedId));
+  check((await page.evaluate(() => state.photos[0].marks.map((m) => m.type).join())) === 'arrow,text', 'markup saved (arrow and text; undo removed the circle)');
+  check(await page.getAttribute('#list .item:nth-child(1) .thumb', 'src') !== thumbBefore, 'thumbnail shows the markup');
+  const before = await page.evaluate(() => state.photos[0].marks[0].pts[0].join());
+  await page.click('#list .item:nth-child(1) [data-act=rotate]');
+  await page.waitForFunction((b) => state.photos[0].marks[0].pts[0].join() !== b && blobs.has(state.photos[0].markedId), before);
+  check(await page.evaluate(() => state.photos[0].w > state.photos[0].h && !!state.photos[0].markedId), 'markup kept and turned when the photo is rotated');
+
   await page.click('#list .item:nth-child(2) [data-act=rotate]');
   await page.waitForTimeout(300);
 
@@ -144,6 +171,13 @@ try {
   check(download.suggestedFilename() === 'Site Visit.pdf', 'pdf file name');
   check(pdf.subarray(0, 5).toString() === '%PDF-' && pdf.length > 5000, `pdf written (${pdf.length} bytes)`);
   check((pdf.toString('latin1').match(/\/Type \/Page\b/g) || []).length === 2, 'pdf has two pages');
+
+  // Smallest photo quality makes a smaller PDF.
+  await settings(page, 'layoutDlg', () => page.selectOption('[data-key=pdfQuality]', 'small'));
+  const [smallPdf] = await Promise.all([page.waitForEvent('download'), page.click('#exportBtn')]);
+  const smallBytes = await readFile(await smallPdf.path());
+  check(smallBytes.length < pdf.length, `smallest quality makes a smaller pdf (${smallBytes.length} < ${pdf.length} bytes)`);
+  await settings(page, 'layoutDlg', () => page.selectOption('[data-key=pdfQuality]', 'full'));
 
   await page.waitForTimeout(500); // let the debounced save land
   await page.reload();
@@ -184,6 +218,7 @@ try {
   await page.waitForSelector('#reports[open]');
   check(await page.locator('#reportList .report').count() === 3, 'import replaces the existing copy');
   check((await page.inputValue('#list .item:nth-child(1) textarea')).startsWith('North'), 'imported report has its captions');
+  check(await page.evaluate(() => !!(state.photos[0].markedId && blobs.has(state.photos[0].markedId) && state.photos[0].marks.length === 2)), 'imported report keeps the markup');
   page.once('dialog', (d) => d.accept());
   await page.click('#reportList .report:has-text("Second Visit") [data-act=delete]');
   await page.waitForFunction(() => document.querySelectorAll('#reportList .report').length === 2);
