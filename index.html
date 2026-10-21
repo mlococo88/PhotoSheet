@@ -117,6 +117,9 @@
   .form .wide { grid-column: 1 / -1; }
   .form .check { flex-direction: row; align-items: center; gap: 8px; color: var(--ink); font-weight: 400; font-size: 14px; }
   .logo-row { display: flex; align-items: center; gap: 8px; }
+  .logo-size { display: flex; align-items: center; gap: 8px; font-weight: 400; color: var(--ink); font-size: 14px; margin-top: 6px; max-width: 360px; }
+  .logo-size input { flex: 1; accent-color: var(--accent); }
+  .logo-size output { min-width: 3.5em; color: var(--muted); }
   .logo-row img { height: 34px; max-width: 110px; object-fit: contain; background: #fff; border: 1px solid var(--line); border-radius: 4px; }
 
   /* Preview pages: always white paper, sized by aspect ratio, text sized in container units */
@@ -253,6 +256,10 @@
             <label class="btn small">Choose…<input id="logoInput" class="visually-hidden" type="file" accept="image/*"></label>
             <button class="btn small" type="button" id="logoRemove" hidden>Remove</button>
           </span>
+          <span class="logo-size" id="logoSize" hidden>
+            Size <input type="range" min="30" max="100" step="5" data-key="logoScale" data-type="number" aria-label="Logo size">
+            <output id="logoScaleOut"></output>
+          </span>
         </label>
         <label class="check"><input type="checkbox" data-key="showDate" data-type="bool"> Show date taken</label>
         <label class="check"><input type="checkbox" data-key="showFileName" data-type="bool"> Show file name</label>
@@ -302,7 +309,7 @@ const today = () => new Date().toISOString().slice(0, 10);
 const DEFAULTS = {
   title: 'Photo Log', project: '', location: '', client: '', date: today(), preparedBy: '', footer: '',
   pageSize: 'letter', orientation: 'portrait', perPage: 2, startNumber: 1,
-  showDate: true, showFileName: false, logoId: null, logoW: 0, logoH: 0,
+  showDate: true, showFileName: false, logoId: null, logoW: 0, logoH: 0, logoScale: 70,
 };
 
 let state = { id: null, settings: { ...DEFAULTS }, photos: [] }; // photos: {id, name, caption, taken, w, h}
@@ -409,7 +416,7 @@ async function loadReport(id) {
 }
 
 // Settings a new report carries over from the one open now (company details, not job details).
-const CARRY = ['footer', 'preparedBy', 'pageSize', 'orientation', 'perPage', 'showDate', 'showFileName'];
+const CARRY = ['logoScale', 'footer', 'preparedBy', 'pageSize', 'orientation', 'perPage', 'showDate', 'showFileName'];
 
 async function createReport() {
   const prev = state.settings;
@@ -810,6 +817,7 @@ function bindForm() {
       state.settings[key] = t === 'bool' ? el.checked : t === 'number' ? Number(el.value) || 0 : el.value;
       if (key === 'startNumber') renumber();
       if (key === 'title') showCurrentName();
+      if (key === 'logoScale') $('#logoScaleOut').textContent = `${el.value}%`;
       save(); schedulePreview();
     });
   });
@@ -818,6 +826,8 @@ function showLogo() {
   const id = state.settings.logoId;
   $('#logoPreview').hidden = !id;
   $('#logoRemove').hidden = !id;
+  $('#logoSize').hidden = !id;
+  $('#logoScaleOut').textContent = `${state.settings.logoScale}%`;
   if (id) $('#logoPreview').src = urlFor(id);
 }
 $('#logoInput').addEventListener('change', async (e) => {
@@ -874,7 +884,8 @@ function layout(s) {
   // Logo sits in the top-left corner (up to 50 mm wide); title and fields start just after it.
   let logo = null;
   if (s.logoId && s.logoW && s.logoH) {
-    const r = fit({ x: M, y: M, w: 50, h: headerH - 4 }, s.logoW, s.logoH);
+    const k = Math.min(100, Math.max(30, Number(s.logoScale) || 70)) / 100; // 100% = up to 50 × 20 mm
+    const r = fit({ x: M, y: M, w: 50 * k, h: (headerH - 4) * k }, s.logoW, s.logoH);
     logo = { ...r, x: M };
   }
   const textX = logo ? M + logo.w + 5 : M;

@@ -87,6 +87,10 @@ try {
   await page.waitForSelector('#pages .pg-logo');
   const [logoBox, titleBox, pageBox] = await Promise.all(['#pages .pg-logo', '#pages .pg-title', '#pages .page'].map((sel) => page.locator(sel).first().boundingBox()));
   check(logoBox.x - pageBox.x < pageBox.width * 0.1 && titleBox.x >= logoBox.x + logoBox.width, 'logo top left, title after it');
+  await page.locator('[data-key=logoScale]').fill('35');
+  await page.waitForTimeout(300);
+  const small = await page.locator('#pages .pg-logo').first().boundingBox();
+  check(small.width < logoBox.width * 0.6, 'logo size slider shrinks the logo');
 
   await page.click('#list .item:nth-child(2) [data-act=rotate]');
   await page.waitForTimeout(300);
