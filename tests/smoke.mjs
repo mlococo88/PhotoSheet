@@ -100,7 +100,7 @@ try {
   check(small.width < logoBox.width * 0.6, 'logo size slider shrinks the logo');
 
   // Every theme draws a header and footer in the preview, and exports.
-  for (const theme of ['banded', 'titleblock', 'minimal', 'classic']) {
+  for (const theme of ['banded', 'titleblock', 'minimal', 'accentline', 'centered', 'corporate', 'outlined', 'classic']) {
     await settings(page, 'layoutDlg', () => page.selectOption('[data-key=theme]', theme));
     await page.waitForTimeout(250);
     const text = await page.textContent('#pages .page');

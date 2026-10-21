@@ -274,6 +274,10 @@
           <option value="banded">Banded</option>
           <option value="titleblock">Title block</option>
           <option value="minimal">Minimal</option>
+          <option value="accentline">Accent line</option>
+          <option value="centered">Centered</option>
+          <option value="corporate">Corporate</option>
+          <option value="outlined">Outlined</option>
         </select>
       </label>
       <label id="accentField">Accent colour<input type="color" data-key="accent"></label>
@@ -895,7 +899,7 @@ $('#clearAll').onclick = () => {
 };
 
 // ---------- Sheet settings ----------
-const ACCENT_THEMES = ['banded', 'titleblock'];
+const ACCENT_THEMES = ['banded', 'titleblock', 'accentline', 'corporate', 'outlined'];
 function syncThemeFields() { $('#accentField').hidden = !ACCENT_THEMES.includes(state.settings.theme); }
 function fillForm() {
   document.querySelectorAll('[data-key]').forEach((el) => {
@@ -992,6 +996,10 @@ const THEMES = {
   banded: { headerH: 26, footerH: 8 },
   titleblock: { headerH: 27, footerH: 9 },
   minimal: { headerH: 17, footerH: 6 },
+  accentline: { headerH: 24, footerH: 7 },
+  centered: { headerH: 30, footerH: 7 },
+  corporate: { headerH: 30, footerH: 8 },
+  outlined: { headerH: 26, footerH: 8 },
 };
 
 function measure(text, pt, bold) {
@@ -1017,6 +1025,27 @@ function onColor(hex) {
   const n = parseInt((hex || '#000000').slice(1), 16);
   const lum = (0.299 * (n >> 16) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255)) / 255;
   return lum > 0.6 ? { text: '#111111', soft: '#444444' } : { text: '#ffffff', soft: '#d3dbe6' };
+}
+// A pale version of a colour, for tinted backgrounds.
+function tint(hex, k = 0.88) {
+  const n = parseInt((hex || '#000000').slice(1), 16);
+  const mix = (c) => Math.round(c + (255 - c) * k).toString(16).padStart(2, '0');
+  return `#${mix(n >> 16)}${mix((n >> 8) & 255)}${mix(n & 255)}`;
+}
+// Fields as "Project: X · Location: Y", breaking lines only between fields.
+function fieldLines(fields, w, pt) {
+  const lines = [];
+  for (const item of fields.map(([k, v]) => `${k}: ${v}`)) {
+    const joined = lines.length ? `${lines[lines.length - 1]}   ·   ${item}` : item;
+    if (lines.length && measure(joined, pt) <= w) lines[lines.length - 1] = joined; else lines.push(item);
+  }
+  return lines;
+}
+// Widths for a row of label/value cells, in proportion to what each holds.
+function cellWidths(fields, w) {
+  const need = fields.map(([k, v]) => Math.max(measure(k.toUpperCase(), 6, true), measure(v, 8.5)) + 4);
+  const total = need.reduce((a, b) => a + b, 0);
+  return need.map((n) => (total <= w ? n + (w - total) / need.length : (n / total) * w));
 }
 // Logo inside `box`, scaled by the size slider; left-aligned, optionally centred vertically.
 function logoIn(s, box, middle) {
@@ -1046,10 +1075,7 @@ function headerOps(L, s) {
     const rx = M + cellW, rw = inner - cellW;
     if (fields.length) {
       ops.push(T(rx + 3, M + 2.4, rw - 6, s.title || '', 13, { bold: true, cls: 'pg-title' }), R(rx, M + 10, rw, 0.25, line));
-      // Cells share the width in proportion to what they hold, so long values get more room.
-      const need = fields.map(([k, v]) => Math.max(measure(k.toUpperCase(), 6, true), measure(v, 8.5)) + 4);
-      const total = need.reduce((a, b) => a + b, 0), y0 = M + 10;
-      const widths = need.map((n) => (total <= rw ? n + (rw - total) / need.length : (n / total) * rw));
+      const widths = cellWidths(fields, rw), y0 = M + 10;
       let x = rx;
       fields.forEach(([k, v], i) => {
         const cw = widths[i];
@@ -1060,18 +1086,55 @@ function headerOps(L, s) {
     } else {
       ops.push(T(rx + 3, M + (box.h - 13 * PT) / 2, rw - 6, s.title || '', 13, { bold: true, cls: 'pg-title' }));
     }
+  } else if (theme === 'accentline') {
+    const A = s.accent;
+    ops.push(R(M, M, 1.6, H0 - 3, { fill: A, r: 0.5 }));
+    const logo = logoIn(s, { x: M + 5, y: M, w: 48, h: H0 - 4 });
+    if (logo) ops.push(logo);
+    const tx = logo ? logo.x + logo.w + 5 : M + 5, tw = M + inner - tx, colW = tw / 2;
+    ops.push(T(tx, M, tw, s.title || '', 15, { bold: true, cls: 'pg-title' }));
+    fields.forEach(([k, v], i) => ops.push(...labelValue(tx + (i % 2) * colW, M + 8 + Math.floor(i / 2) * 4.4, colW - 2, k, v, 8.5, A, '#111111')));
+    ops.push(R(M, M + H0 - 0.6, inner, 0.6, { fill: A }));
+  } else if (theme === 'centered') {
+    let ty = M + 2;
+    if (s.logoId && s.logoW && s.logoH) {
+      const k = Math.min(100, Math.max(30, Number(s.logoScale) || 70)) / 100;
+      const r = fit({ x: M, y: M, w: 50 * k, h: 12 * k }, s.logoW, s.logoH);
+      ops.push({ t: 'logo', ...r, x: M + (inner - r.w) / 2, y: M });
+      ty = M + r.h + 2;
+    }
+    ops.push(T(M, ty, inner, s.title || '', 14, { bold: true, align: 'center', cls: 'pg-title' }));
+    fieldLines(fields, inner, 8).slice(0, 2).forEach((l, i) => ops.push(T(M, ty + 6.3 + i * 3.6, inner, l, 8, { color: '#555555', align: 'center' })));
+    ops.push(R(M, M + H0 - 1.4, inner, 0.5, { fill: '#222222' }), R(M, M + H0 - 0.5, inner, 0.2, { fill: '#222222' }));
+  } else if (theme === 'corporate') {
+    const A = s.accent;
+    const logo = logoIn(s, { x: M, y: M, w: 55, h: 14 });
+    if (logo) ops.push(logo);
+    const tx = logo ? M + logo.w + 6 : M;
+    ops.push(T(tx, M + 3, M + inner - tx, s.title || '', 16, { bold: true, color: A, align: logo ? 'right' : 'left', cls: 'pg-title' }));
+    if (fields.length) {
+      const y = M + 16.5, h = H0 - 17.5, widths = cellWidths(fields, inner - 4);
+      ops.push(R(M, y, inner, h, { fill: tint(A), r: 1 }));
+      let x = M + 2;
+      fields.forEach(([k, v], i) => {
+        ops.push(T(x + 1.5, y + 2.2, widths[i] - 3, k.toUpperCase(), 6, { bold: true, color: A }), T(x + 1.5, y + 6.2, widths[i] - 3, v, 8.5));
+        x += widths[i];
+      });
+    }
+  } else if (theme === 'outlined') {
+    const A = s.accent;
+    ops.push(R(M, M, inner, H0 - 3, { stroke: A, lw: 0.6, r: 2.5 }));
+    const logo = logoIn(s, { x: M + 4, y: M + 3, w: 46, h: H0 - 9 }, true);
+    if (logo) ops.push(logo);
+    const tx = logo ? logo.x + logo.w + 5 : M + 5, tw = M + inner - 4 - tx, colW = tw / 3;
+    ops.push(T(tx, M + 3, tw, s.title || '', 14, { bold: true, cls: 'pg-title' }));
+    fields.forEach(([k, v], i) => ops.push(...labelValue(tx + (i % 3) * colW, M + 10.5 + Math.floor(i / 3) * 4.3, colW - 2, k, v, 8, '#666666', '#111111')));
   } else if (theme === 'minimal') {
     const logo = logoIn(s, { x: M, y: M, w: 40, h: H0 - 4 });
     if (logo) ops.push(logo);
     const tx = logo ? M + logo.w + 5 : M, tw = M + inner - tx;
     ops.push(T(tx, M + 0.3, tw, s.title || '', 13, { bold: true, cls: 'pg-title' }));
-    // Fields run on as "Project: X · Location: Y", breaking lines only between fields.
-    const lines = [];
-    for (const item of fields.map(([k, v]) => `${k}: ${v}`)) {
-      const joined = lines.length ? `${lines[lines.length - 1]}   ·   ${item}` : item;
-      if (lines.length && measure(joined, 8) <= tw) lines[lines.length - 1] = joined; else lines.push(item);
-    }
-    lines.slice(0, 2).forEach((l, i) => ops.push(T(tx, M + 6.8 + i * 3.6, tw, l, 8, { color: '#666666' })));
+    fieldLines(fields, tw, 8).slice(0, 2).forEach((l, i) => ops.push(T(tx, M + 6.8 + i * 3.6, tw, l, 8, { color: '#666666' })));
     ops.push(R(M, M + H0 - 0.3, inner, 0.2, { fill: '#cccccc' }));
   } else {
     const logo = logoIn(s, { x: M, y: M, w: 50, h: H0 - 4 });
@@ -1097,6 +1160,22 @@ function footerOps(L, s, pageNo, total) {
     ops.push(R(M, f.y, inner, f.h, { stroke: '#222222', lw: 0.35 }), R(M + inner - 32, f.y, 0.25, f.h, { fill: '#222222' }),
       T(M + 3, mid(8), inner - 38, s.footer || '', 8, { color: '#333333' }),
       T(M + inner - 32, mid(8), 32, page, 8, { bold: true, align: 'center' }));
+  } else if (theme === 'accentline') {
+    ops.push(R(M, f.y, inner, 0.6, { fill: s.accent }),
+      T(M, f.y + 1.9, inner * 0.7, s.footer || '', 8, { color: '#444444' }),
+      T(M + inner * 0.7, f.y + 1.9, inner * 0.3, page, 8, { bold: true, color: s.accent, align: 'right' }));
+  } else if (theme === 'centered') {
+    ops.push(R(M, f.y, inner, 0.2, { fill: '#222222' }),
+      T(M, f.y + 1.8, inner, [s.footer, page].filter(Boolean).join('   ·   '), 8, { color: '#444444', align: 'center' }));
+  } else if (theme === 'corporate') {
+    ops.push(R(M, f.y, inner, f.h, { fill: tint(s.accent), r: 1 }),
+      T(M + 3, mid(8), inner * 0.7, s.footer || '', 8, { color: '#333333' }),
+      T(M + inner * 0.7, mid(8), inner * 0.3 - 3, page, 8, { bold: true, color: s.accent, align: 'right' }));
+  } else if (theme === 'outlined') {
+    const ph = f.h - 1.6;
+    ops.push(T(M, mid(8), inner - 40, s.footer || '', 8, { color: '#555555' }),
+      R(M + inner - 34, f.y + 0.8, 34, ph, { fill: s.accent, r: ph / 2 }),
+      T(M + inner - 34, mid(8), 34, page, 8, { bold: true, color: onColor(s.accent).text, align: 'center' }));
   } else if (theme === 'minimal') {
     ops.push(T(M, f.y + 1.5, inner * 0.6, s.footer || '', 7.5, { color: '#888888' }),
       T(M + inner * 0.6, f.y + 1.5, inner * 0.4, page, 7.5, { color: '#888888', align: 'right' }));
