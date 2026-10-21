@@ -20,9 +20,12 @@ Everything runs on your device. Photos are never uploaded anywhere.
    Tick it again to put it back.
 4. **Describe**: type a description under each photo. The date taken is read
    from the photo's EXIF data when it's there, and you can edit it.
-5. **Sheet**: set the title, project, location, client, date, prepared by,
-   footer text and your company logo (it goes in the top-left corner; a slider sets its size); choose paper (Letter, A4, Legal), orientation, photos
-   per page (1, 2, 3, 4, 6 or 8) and the first photo number.
+5. **Project info** (button above the preview): title, project, location,
+   client, date and prepared by. **Header & page**: your company logo (top-left
+   corner, with a size slider), footer text, paper (Letter, A4, Legal),
+   orientation, photos per page (1, 2, 3, 4, 6 or 8), the first photo number,
+   and what to show. Both open in a window you close with *Done*; the preview
+   updates as you type.
 6. **Photo index**: tick *Include photo index at the front* to start the PDF
    with a table of every photo: number, description, date taken and the page
    it's on. Untick it to leave the index out.

@@ -21,6 +21,11 @@ const url = `http://localhost:${server.address().port}/`;
 
 const errors = [];
 const browser = await chromium.launch(process.env.CHROMIUM_PATH ? { executablePath: process.env.CHROMIUM_PATH } : {});
+const settings = async (page, dlg, fn) => { // open a settings window, fill it in, close it
+  await page.click(`[data-open=${dlg}]`);
+  await fn();
+  await page.click(`#${dlg} [data-close]`);
+};
 const check = (cond, msg) => { if (!cond) throw new Error('FAIL: ' + msg); console.log('ok -', msg); };
 
 try {
@@ -69,9 +74,11 @@ try {
   check(moved.join() === 'a.jpg,c.jpg,b.jpg', 'move up');
 
   await page.fill('#list .item:nth-child(1) textarea', 'North elevation, looking south. Cracking visible at the window head.');
-  await page.fill('[data-key=title]', 'Site Visit');
-  await page.fill('[data-key=project]', 'Test Project');
-  await page.selectOption('[data-key=perPage]', '2');
+  await settings(page, 'projectDlg', async () => {
+    await page.fill('[data-key=title]', 'Site Visit');
+    await page.fill('[data-key=project]', 'Test Project');
+  });
+  await settings(page, 'layoutDlg', () => page.selectOption('[data-key=perPage]', '2'));
   await page.waitForTimeout(300);
   check(await page.locator('#pages .page').count() === 2, 'two pages at 2 per page');
   check((await page.textContent('#pages .page')).includes('North elevation'), 'caption in preview');
@@ -87,7 +94,7 @@ try {
   await page.waitForSelector('#pages .pg-logo');
   const [logoBox, titleBox, pageBox] = await Promise.all(['#pages .pg-logo', '#pages .pg-title', '#pages .page'].map((sel) => page.locator(sel).first().boundingBox()));
   check(logoBox.x - pageBox.x < pageBox.width * 0.1 && titleBox.x >= logoBox.x + logoBox.width, 'logo top left, title after it');
-  await page.locator('[data-key=logoScale]').fill('35');
+  await settings(page, 'layoutDlg', () => page.locator('[data-key=logoScale]').fill('35'));
   await page.waitForTimeout(300);
   const small = await page.locator('#pages .pg-logo').first().boundingBox();
   check(small.width < logoBox.width * 0.6, 'logo size slider shrinks the logo');
@@ -105,7 +112,7 @@ try {
   check(await page.locator('#pages .page').count() === 2, 'ticking it again puts it back');
 
   // Photo index: ticking the box adds an index page at the front; unticking removes it.
-  await page.check('[data-key=includeIndex]');
+  await settings(page, 'layoutDlg', () => page.check('[data-key=includeIndex]'));
   await page.waitForTimeout(300);
   check(await page.locator('#pages .page').count() === 3, 'index adds a page');
   const idx = await page.textContent('#pages .page');
@@ -113,7 +120,7 @@ try {
   const [withIndex] = await Promise.all([page.waitForEvent('download'), page.click('#exportBtn')]);
   const pdfIdx = await readFile(await withIndex.path());
   check((pdfIdx.toString('latin1').match(/\/Type \/Page\b/g) || []).length === 3, 'pdf with index has three pages');
-  await page.uncheck('[data-key=includeIndex]');
+  await settings(page, 'layoutDlg', () => page.uncheck('[data-key=includeIndex]'));
   await page.waitForTimeout(300);
   check(await page.locator('#pages .page').count() === 2, 'unticking removes the index');
 
@@ -138,7 +145,7 @@ try {
   await page.waitForFunction(() => document.querySelectorAll('#list .item').length === 0);
   check(await page.inputValue('[data-key=title]') === 'Photo Log', 'new report starts empty');
   check(await page.locator('#pages .pg-logo').count() === 1, 'new report keeps the logo');
-  await page.fill('[data-key=title]', 'Second Visit');
+  await settings(page, 'projectDlg', () => page.fill('[data-key=title]', 'Second Visit'));
   await page.click('#reportsBtn');
   await page.waitForSelector('#reports[open]');
   check(await page.locator('#reportList .report').count() === 2, 'two reports listed');
