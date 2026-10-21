@@ -18,7 +18,7 @@ Everything runs on your device. Photos are never uploaded anywhere.
 3. **Describe**: type a description under each photo. The date taken is read
    from the photo's EXIF data when it's there, and you can edit it.
 4. **Sheet**: set the title, project, location, client, date, prepared by,
-   footer text and logo; choose paper (Letter, A4, Legal), orientation, photos
+   footer text and your company logo (it goes in the top-left corner); choose paper (Letter, A4, Legal), orientation, photos
    per page (1, 2, 3, 4, 6 or 8) and the first photo number.
 5. **Preview** shows the pages exactly as they'll print. **Export PDF** saves
    the file.

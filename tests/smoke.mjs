@@ -76,6 +76,18 @@ try {
   check(await page.locator('#pages .page').count() === 2, 'two pages at 2 per page');
   check((await page.textContent('#pages .page')).includes('North elevation'), 'caption in preview');
 
+  // Logo goes in the top-left corner, with the title to its right.
+  const logo = await page.evaluate(async () => {
+    const c = document.createElement('canvas'); c.width = 300; c.height = 100;
+    c.getContext('2d').fillRect(0, 0, 300, 100);
+    const b = await new Promise((r) => c.toBlob(r, 'image/png'));
+    return [...new Uint8Array(await b.arrayBuffer())];
+  });
+  await page.setInputFiles('#logoInput', { name: 'logo.png', mimeType: 'image/png', buffer: Buffer.from(logo) });
+  await page.waitForSelector('#pages .pg-logo');
+  const [logoBox, titleBox, pageBox] = await Promise.all(['#pages .pg-logo', '#pages .pg-title', '#pages .page'].map((sel) => page.locator(sel).first().boundingBox()));
+  check(logoBox.x - pageBox.x < pageBox.width * 0.1 && titleBox.x >= logoBox.x + logoBox.width, 'logo top left, title after it');
+
   await page.click('#list .item:nth-child(2) [data-act=rotate]');
   await page.waitForTimeout(300);
 
