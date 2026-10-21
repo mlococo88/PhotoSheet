@@ -106,6 +106,11 @@
     border: 1px solid var(--line); border-radius: 6px; background: var(--bg);
   }
   .row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+  .incl { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; cursor: pointer; white-space: nowrap; }
+  .incl input { width: 16px; height: 16px; accent-color: var(--accent); }
+  .item.excluded { background: var(--chip); border-style: dashed; }
+  .item.excluded .thumb, .item.excluded textarea, .item.excluded input.taken { opacity: .5; }
+  .item.excluded .num { color: var(--muted); font-weight: 600; }
   .row input.taken { flex: 1; min-width: 120px; padding: 4px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); font-size: 13px; }
 
   /* Sheet form */
@@ -723,21 +728,33 @@ async function fromDrop(dt) {
 
 // ---------- Photo list ----------
 function number(i) { return (Number(state.settings.startNumber) || 0) + i; }
+const printed = () => state.photos.filter((p) => !p.exclude);
+// Photo number shown in the list: printed photos are numbered in order; excluded ones get none.
+function listNumbers() {
+  let k = 0;
+  return state.photos.map((p) => (p.exclude ? null : number(k++)));
+}
+const numLabel = (n) => (n === null ? 'Not in report' : `Photo ${n}`);
 
+function showCount() {
+  const n = state.photos.length, out = n - printed().length;
+  $('#count').textContent = n ? `(${n}${out ? ` · ${out} excluded` : ''})` : '';
+  $('#tabCount').textContent = n ? `(${n})` : '';
+}
 function renderList() {
   const list = $('#list');
   const n = state.photos.length;
+  const nums = listNumbers();
+  showCount();
   $('#empty').hidden = n > 0;
-  $('#count').textContent = n ? `(${n})` : '';
-  $('#tabCount').textContent = n ? `(${n})` : '';
   for (const id of ['sortName', 'sortDate', 'clearAll']) $('#' + id).hidden = n === 0;
   list.innerHTML = state.photos.map((p, i) => `
-    <li class="item" data-id="${p.id}">
+    <li class="item${p.exclude ? ' excluded' : ''}" data-id="${p.id}">
       <div class="handle" title="Drag to reorder" aria-hidden="true">⋮⋮</div>
       <img class="thumb" src="${urlFor(p.id)}" alt="">
       <div class="fields">
         <div class="meta">
-          <span class="num">Photo ${number(i)}</span>
+          <span class="num">${numLabel(nums[i])}</span>
           <span class="fname" title="${esc(p.name)}">${esc(p.name)}</span>
           <button class="btn icon small" type="button" data-act="up" title="Move up" aria-label="Move up" ${i === 0 ? 'disabled' : ''}>↑</button>
           <button class="btn icon small" type="button" data-act="down" title="Move down" aria-label="Move down" ${i === n - 1 ? 'disabled' : ''}>↓</button>
@@ -747,14 +764,18 @@ function renderList() {
         <textarea data-field="caption" rows="2" placeholder="Description">${esc(p.caption)}</textarea>
         <div class="row">
           <input class="taken" data-field="taken" type="text" value="${esc(p.taken)}" placeholder="Date taken" aria-label="Date taken">
+          <label class="incl"><input type="checkbox" data-include ${p.exclude ? '' : 'checked'}> Include in report</label>
         </div>
       </div>
     </li>`).join('');
 }
 
 function renumber() {
+  const nums = listNumbers();
+  showCount();
   document.querySelectorAll('#list .item').forEach((el, i) => {
-    el.querySelector('.num').textContent = `Photo ${number(i)}`;
+    el.querySelector('.num').textContent = numLabel(nums[i]);
+    el.classList.toggle('excluded', !!state.photos[i].exclude);
     el.querySelector('[data-act=up]').disabled = i === 0;
     el.querySelector('[data-act=down]').disabled = i === state.photos.length - 1;
   });
@@ -794,6 +815,13 @@ $('#list').addEventListener('click', (e) => {
     dropBlob(id);
     save(); renderList(); schedulePreview();
   }
+});
+$('#list').addEventListener('change', (e) => {
+  if (!e.target.matches('[data-include]')) return;
+  const p = state.photos.find((x) => x.id === e.target.closest('.item').dataset.id);
+  if (!p) return;
+  if (e.target.checked) delete p.exclude; else p.exclude = true;
+  renumber(); save(); schedulePreview();
 });
 $('#list').addEventListener('input', (e) => {
   const field = e.target.dataset.field;
@@ -969,12 +997,13 @@ function pages() {
   const s = state.settings;
   const per = Number(s.perPage) || 2;
   const photoPages = [];
-  for (let i = 0; i < state.photos.length; i += per) photoPages.push({ kind: 'photos', photos: state.photos.slice(i, i + per), first: i });
+  const photos = printed();
+  for (let i = 0; i < photos.length; i += per) photoPages.push({ kind: 'photos', photos: photos.slice(i, i + per), first: i });
   if (!photoPages.length) return [{ kind: 'photos', photos: [], first: 0 }];
   if (!s.includeIndex) return photoPages;
   const IL = indexLayout(layout(s), s);
-  const indexCount = Math.ceil(state.photos.length / IL.perPage);
-  const rows = state.photos.map((photo, i) => ({ photo, n: number(i), page: indexCount + Math.floor(i / per) + 1 }));
+  const indexCount = Math.ceil(photos.length / IL.perPage);
+  const rows = photos.map((photo, i) => ({ photo, n: number(i), page: indexCount + Math.floor(i / per) + 1 }));
   const indexPages = [];
   for (let i = 0; i < rows.length; i += IL.perPage) indexPages.push({ kind: 'index', rows: rows.slice(i, i + IL.perPage) });
   return [...indexPages, ...photoPages];
@@ -1036,7 +1065,7 @@ function renderPreview() {
     L.cells.forEach((cell, ci) => {
       const photo = pg.photos[ci];
       if (!photo) {
-        if (!state.photos.length) html += `<div class="pg-slot" style="${pct(cell.img)}"></div>`;
+        if (!pg.photos.length) html += `<div class="pg-slot" style="${pct(cell.img)}"></div>`;
         return;
       }
       html += `<img class="pg-img" src="${urlFor(photo.id)}" style="${pct(fit(cell.img, photo.w, photo.h))}" alt="">`;
@@ -1060,6 +1089,7 @@ async function bytes(id) { return new Uint8Array(await blobs.get(id).arrayBuffer
 
 async function exportPdf() {
   if (!state.photos.length) { toast('Add some photos first.'); return; }
+  if (!printed().length) { toast('Every photo is unticked. Tick "Include in report" on the ones to print.', 4000); return; }
   if (!window.jspdf) { toast('The PDF library did not load. Check your connection and reload.'); return; }
   const btn = $('#exportBtn');
   btn.disabled = true;

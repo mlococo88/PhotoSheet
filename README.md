@@ -15,15 +15,18 @@ Everything runs on your device. Photos are never uploaded anywhere.
      *Add photos* / *Add folder*.
 2. **Arrange**: drag the ⋮⋮ handle to reorder, or use ↑ ↓. *Sort by name* and
    *Sort by date taken* reorder everything at once. ⟳ rotates a photo 90°.
-3. **Describe**: type a description under each photo. The date taken is read
+3. **Include or leave out**: untick *Include in report* on a photo to keep it in
+   the list but leave it out of the PDF, the photo index and the numbering.
+   Tick it again to put it back.
+4. **Describe**: type a description under each photo. The date taken is read
    from the photo's EXIF data when it's there, and you can edit it.
-4. **Sheet**: set the title, project, location, client, date, prepared by,
+5. **Sheet**: set the title, project, location, client, date, prepared by,
    footer text and your company logo (it goes in the top-left corner; a slider sets its size); choose paper (Letter, A4, Legal), orientation, photos
    per page (1, 2, 3, 4, 6 or 8) and the first photo number.
-5. **Photo index**: tick *Include photo index at the front* to start the PDF
+6. **Photo index**: tick *Include photo index at the front* to start the PDF
    with a table of every photo: number, description, date taken and the page
    it's on. Untick it to leave the index out.
-6. **Preview** shows the pages exactly as they'll print. **Export PDF** saves
+7. **Preview** shows the pages exactly as they'll print. **Export PDF** saves
    the file.
 
 ## Reports

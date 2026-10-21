@@ -92,6 +92,18 @@ try {
   const small = await page.locator('#pages .pg-logo').first().boundingBox();
   check(small.width < logoBox.width * 0.6, 'logo size slider shrinks the logo');
 
+  // Unticking "Include in report" leaves a photo out of the preview and renumbers the rest.
+  await page.uncheck('#list .item:nth-child(2) [data-include]');
+  await page.waitForTimeout(300);
+  check(await page.locator('#pages .page').count() === 1, 'excluded photo leaves the preview');
+  check(await page.textContent('#list .item:nth-child(2) .num') === 'Not in report'
+    && await page.textContent('#list .item:nth-child(3) .num') === 'Photo 2', 'excluded photo is unnumbered, the rest renumber');
+  const [partial] = await Promise.all([page.waitForEvent('download'), page.click('#exportBtn')]);
+  check((((await readFile(await partial.path())).toString('latin1')).match(/\/Type \/Page\b/g) || []).length === 1, 'pdf leaves out the excluded photo');
+  await page.check('#list .item:nth-child(2) [data-include]');
+  await page.waitForTimeout(300);
+  check(await page.locator('#pages .page').count() === 2, 'ticking it again puts it back');
+
   // Photo index: ticking the box adds an index page at the front; unticking removes it.
   await page.check('[data-key=includeIndex]');
   await page.waitForTimeout(300);
