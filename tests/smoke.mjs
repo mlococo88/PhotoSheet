@@ -103,6 +103,40 @@ try {
   check(await page.inputValue('[data-key=title]') === 'Site Visit', 'settings restored after reload');
   check((await page.inputValue('#list .item:nth-child(1) textarea')).startsWith('North'), 'captions restored after reload');
 
+  // Reports: start a new one, then go back to the first.
+  await page.click('#reportsBtn');
+  await page.click('#newReport');
+  await page.waitForFunction(() => document.querySelectorAll('#list .item').length === 0);
+  check(await page.inputValue('[data-key=title]') === 'Photo Log', 'new report starts empty');
+  check(await page.locator('#pages .pg-logo').count() === 1, 'new report keeps the logo');
+  await page.fill('[data-key=title]', 'Second Visit');
+  await page.click('#reportsBtn');
+  await page.waitForSelector('#reports[open]');
+  check(await page.locator('#reportList .report').count() === 2, 'two reports listed');
+  await page.click('#reportList .report:has-text("Site Visit") [data-act=open] >> nth=0');
+  await page.waitForFunction(() => document.querySelectorAll('#list .item').length === 3);
+  check((await page.inputValue('#list .item:nth-child(1) textarea')).startsWith('North'), 'first report reopened with captions');
+
+  // Backup and restore.
+  await page.click('#reportsBtn');
+  await page.waitForSelector('#reports[open]');
+  const [backup] = await Promise.all([page.waitForEvent('download'), page.click('#backupReport')]);
+  check(backup.suggestedFilename() === 'Site Visit.photosheet.json', 'backup file saved');
+  await page.setInputFiles('#restoreInput', await backup.path());
+  await page.waitForFunction(() => document.querySelectorAll('#list .item').length === 3 && !document.querySelector('#reports').open);
+  await page.click('#reportsBtn');
+  await page.waitForSelector('#reports[open]');
+  check(await page.locator('#reportList .report').count() === 3, 'backup opened as a third report');
+  page.once('dialog', (d) => d.accept());
+  await page.click('#reportList .report:has-text("Second Visit") [data-act=delete]');
+  await page.waitForFunction(() => document.querySelectorAll('#reportList .report').length === 2);
+  check(true, 'report deleted');
+  await page.click('#closeReports');
+
+  await page.reload();
+  await page.waitForFunction(() => document.querySelectorAll('#list .item').length === 3);
+  check(await page.textContent('#currentName') === 'Site Visit', 'last open report reopens after reload');
+
   page.once('dialog', (d) => d.accept());
   await page.click('#clearAll');
   await page.waitForFunction(() => document.querySelectorAll('#list .item').length === 0);

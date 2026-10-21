@@ -23,8 +23,22 @@ Everything runs on your device. Photos are never uploaded anywhere.
 5. **Preview** shows the pages exactly as they'll print. **Export PDF** saves
    the file.
 
-Your sheet is saved in the browser (IndexedDB), so it's still there after a
-reload. *Remove all* starts a new sheet.
+## Reports
+
+You can keep as many reports as you like. Tap **Reports** at the top to see
+them all, open one to change a caption or add photos, start a **New report**
+(your logo, footer and page setup carry over), or delete one. Everything saves
+automatically as you go, and the report you had open last opens again next
+time.
+
+Reports are stored in the browser on the device you made them on. To move a
+report to another device, or keep a safe copy, use **Save backup of this
+report** in the Reports window. It saves one `.photosheet.json` file with the
+photos inside. **Open a backup…** on any device brings it back as a report.
+
+On iPhone, add PhotoSheet to your Home Screen (Share → Add to Home Screen).
+Safari can clear storage for websites you haven't opened in a while, but it
+keeps storage for Home Screen apps.
 
 ## Notes
 

@@ -153,11 +153,33 @@
     max-width: calc(100vw - 32px); font-size: 14px; display: none;
   }
   #toast.show { display: block; }
+
+  /* Reports dialog */
+  .brand { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
+  .current-report { font-weight: 400; font-size: 14px; color: #b8c4d4; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 40vw; }
+  dialog#reports {
+    width: min(560px, calc(100vw - 32px)); max-height: calc(100vh - 48px); padding: 0; border: 1px solid var(--line);
+    border-radius: 14px; background: var(--panel); color: var(--ink); box-shadow: 0 20px 60px rgba(0,0,0,.35);
+  }
+  dialog#reports::backdrop { background: rgba(10, 14, 20, .55); }
+  .dlg-head, .dlg-foot { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 14px 16px; }
+  .dlg-head { border-bottom: 1px solid var(--line); }
+  .dlg-head h2 { margin: 0 auto 0 0; font-size: 17px; }
+  .dlg-foot { border-top: 1px solid var(--line); }
+  .dlg-note { color: var(--muted); font-size: 13px; padding: 0 16px 14px; margin: 0; }
+  #reportList { list-style: none; margin: 0; padding: 8px; display: flex; flex-direction: column; gap: 4px; max-height: 55vh; overflow: auto; }
+  .report { display: flex; align-items: center; gap: 10px; padding: 10px; border-radius: 9px; }
+  .report:hover { background: var(--chip); }
+  .report.current { background: var(--drop); }
+  .report .info { flex: 1; min-width: 0; cursor: pointer; }
+  .report .name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .report .sub { color: var(--muted); font-size: 13px; }
 </style>
 </head>
 <body>
   <header class="topbar">
-    <div class="brand">Photo<span>Sheet</span></div>
+    <div class="brand"><div>Photo<span>Sheet</span></div><span class="current-report" id="currentName"></span></div>
+    <button class="btn" id="reportsBtn" type="button" title="Open, start or back up reports">Reports</button>
     <label class="btn touch-only" title="Take a photo with the camera">
       Camera<input id="camera" class="visually-hidden" type="file" accept="image/*" capture="environment">
     </label>
@@ -243,6 +265,20 @@
     </section>
   </main>
 
+  <dialog id="reports" aria-labelledby="reportsTitle">
+    <div class="dlg-head">
+      <h2 id="reportsTitle">Your reports</h2>
+      <button class="btn primary" type="button" id="newReport">New report</button>
+      <button class="btn" type="button" id="closeReports" aria-label="Close">Close</button>
+    </div>
+    <ul id="reportList"></ul>
+    <div class="dlg-foot">
+      <button class="btn small" type="button" id="backupReport">Save backup of this report</button>
+      <label class="btn small">Open a backup…<input id="restoreInput" class="visually-hidden" type="file" accept=".json,application/json"></label>
+    </div>
+    <p class="dlg-note">Reports are saved in this browser on this device. To move a report to another device, or keep a safe copy, save a backup file and open it there.</p>
+  </dialog>
+
   <div id="dropOverlay">Drop photos or folders to add them</div>
   <div id="toast" role="status" aria-live="polite"></div>
 
@@ -269,7 +305,7 @@ const DEFAULTS = {
   showDate: true, showFileName: false, logoId: null, logoW: 0, logoH: 0,
 };
 
-const state = { settings: { ...DEFAULTS }, photos: [] }; // photos: {id, name, caption, taken, w, h}
+let state = { id: null, settings: { ...DEFAULTS }, photos: [] }; // photos: {id, name, caption, taken, w, h}
 const blobs = new Map();  // id -> Blob
 const urls = new Map();   // id -> object URL
 
@@ -324,29 +360,216 @@ async function idb(store, op, key, value) {
     } catch { resolve(undefined); }
   });
 }
-let saveTimer;
+// Each report is stored as meta 'report:<id>' (JSON); 'reports' is the list shown in the
+// Reports dialog and 'current' the one last open. Photo and logo blobs live in 'blobs'.
+let saveTimer = null;
 function save() {
   clearTimeout(saveTimer);
-  saveTimer = setTimeout(() => idb('meta', 'put', 'project', JSON.stringify(state)), 250);
+  saveTimer = setTimeout(flushSave, 250);
 }
-async function load() {
-  const raw = await idb('meta', 'get', 'project');
-  if (!raw) return;
+async function flushSave() {
+  clearTimeout(saveTimer);
+  saveTimer = null;
+  if (!state.id) return;
+  await idb('meta', 'put', 'report:' + state.id, JSON.stringify(state));
+  const list = await reportIndex();
+  const entry = { id: state.id, title: state.settings.title || 'Untitled', count: state.photos.length, updated: Date.now() };
+  const i = list.findIndex((r) => r.id === state.id);
+  if (i >= 0) list[i] = entry; else list.unshift(entry);
+  await idb('meta', 'put', 'reports', list);
+  showCurrentName();
+}
+async function reportIndex() { return (await idb('meta', 'get', 'reports')) || []; }
+
+function releaseBlobs() {
+  for (const u of urls.values()) URL.revokeObjectURL(u);
+  urls.clear(); blobs.clear();
+}
+
+async function loadReport(id) {
+  const raw = await idb('meta', 'get', 'report:' + id);
+  if (!raw) return false;
   try {
     const saved = JSON.parse(raw);
-    state.settings = { ...DEFAULTS, ...saved.settings };
-    const ids = [...(saved.photos || []).map((p) => p.id), state.settings.logoId].filter(Boolean);
-    for (const id of ids) {
-      const b = await idb('blobs', 'get', id);
-      if (b) blobs.set(id, b);
+    releaseBlobs();
+    state = { id, settings: { ...DEFAULTS, ...saved.settings }, photos: saved.photos || [] };
+    const ids = [...state.photos.map((p) => p.id), state.settings.logoId].filter(Boolean);
+    for (const bid of ids) {
+      const b = await idb('blobs', 'get', bid);
+      if (b) blobs.set(bid, b);
     }
-    state.photos = (saved.photos || []).filter((p) => blobs.has(p.id));
+    state.photos = state.photos.filter((p) => blobs.has(p.id));
     if (state.settings.logoId && !blobs.has(state.settings.logoId)) state.settings.logoId = null;
     if (state.settings.logoId && !state.settings.logoW) {
       [state.settings.logoW, state.settings.logoH] = dims(await decode(blobs.get(state.settings.logoId)));
     }
-  } catch (e) { console.warn('Could not restore saved sheet', e); }
+    await idb('meta', 'put', 'current', id);
+    return true;
+  } catch (e) { console.warn('Could not open report', e); return false; }
 }
+
+// Settings a new report carries over from the one open now (company details, not job details).
+const CARRY = ['footer', 'preparedBy', 'pageSize', 'orientation', 'perPage', 'showDate', 'showFileName'];
+
+async function createReport() {
+  const prev = state.settings;
+  const settings = { ...DEFAULTS, date: today() };
+  for (const k of CARRY) settings[k] = prev[k];
+  if (prev.logoId && blobs.has(prev.logoId)) { // copy the logo so deleting one report never removes another's
+    const id = 'logo-' + uid();
+    await idb('blobs', 'put', id, blobs.get(prev.logoId));
+    Object.assign(settings, { logoId: id, logoW: prev.logoW, logoH: prev.logoH });
+  }
+  const id = uid();
+  await idb('meta', 'put', 'report:' + id, JSON.stringify({ id, settings, photos: [] }));
+  return id;
+}
+
+async function deleteReport(id) {
+  const raw = await idb('meta', 'get', 'report:' + id);
+  if (raw) {
+    try {
+      const r = JSON.parse(raw);
+      for (const bid of [...(r.photos || []).map((p) => p.id), r.settings && r.settings.logoId].filter(Boolean)) {
+        await idb('blobs', 'delete', bid);
+      }
+    } catch { /* ignore a damaged entry */ }
+  }
+  await idb('meta', 'delete', 'report:' + id);
+  await idb('meta', 'put', 'reports', (await reportIndex()).filter((r) => r.id !== id));
+}
+
+async function load() {
+  // Sheets saved before reports existed were stored as a single 'project'.
+  const legacy = await idb('meta', 'get', 'project');
+  if (legacy) {
+    const id = uid();
+    await idb('meta', 'put', 'report:' + id, legacy);
+    await idb('meta', 'put', 'current', id);
+    await idb('meta', 'delete', 'project');
+    state.id = id;
+    if (await loadReport(id)) await flushSave();
+  }
+  const current = await idb('meta', 'get', 'current');
+  if (current && (state.id === current || await loadReport(current))) return;
+  const list = await reportIndex();
+  if (list.length && await loadReport(list[0].id)) return;
+  state.id = uid(); // a fresh report; it is saved on the first change
+  state.settings.date = today();
+  await idb('meta', 'put', 'current', state.id);
+}
+
+// ---------- Reports dialog ----------
+function showCurrentName() {
+  $('#currentName').textContent = state.settings.title || 'Untitled';
+}
+function ago(t) {
+  const d = new Date(t);
+  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) + ', ' + d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+}
+async function renderReports() {
+  if (saveTimer) await flushSave();
+  const list = await reportIndex();
+  if (!list.some((r) => r.id === state.id)) {
+    list.unshift({ id: state.id, title: state.settings.title || 'Untitled', count: state.photos.length, updated: Date.now() });
+  }
+  $('#reportList').innerHTML = list.map((r) => `
+    <li class="report${r.id === state.id ? ' current' : ''}" data-id="${r.id}">
+      <div class="info" data-act="open">
+        <div class="name">${esc(r.title || 'Untitled')}</div>
+        <div class="sub">${r.id === state.id ? 'Open now · ' : ''}${r.count} photo${r.count === 1 ? '' : 's'} · edited ${esc(ago(r.updated))}</div>
+      </div>
+      ${r.id === state.id ? '' : '<button class="btn small" type="button" data-act="open">Open</button>'}
+      <button class="btn small danger" type="button" data-act="delete">Delete</button>
+    </li>`).join('');
+}
+async function switchTo(id) {
+  if (saveTimer) await flushSave();
+  if (!(await loadReport(id))) { toast('Could not open that report.'); return; }
+  showReport();
+}
+function showReport() {
+  fillForm(); renderList(); renderPreview(); showCurrentName();
+  document.querySelector('.tabs [data-tab=photosPanel]').click();
+}
+
+$('#reportsBtn').onclick = async () => { await renderReports(); $('#reports').showModal(); };
+$('#closeReports').onclick = () => $('#reports').close();
+$('#reports').addEventListener('click', (e) => { if (e.target === e.currentTarget) e.currentTarget.close(); });
+$('#newReport').onclick = async () => {
+  if (saveTimer) await flushSave();
+  const id = await createReport();
+  await switchTo(id);
+  await flushSave();
+  $('#reports').close();
+  toast('New report started. Your logo, footer and page setup were carried over.');
+};
+$('#reportList').addEventListener('click', async (e) => {
+  const el = e.target.closest('[data-act]');
+  if (!el) return;
+  const id = el.closest('.report').dataset.id;
+  if (el.dataset.act === 'open') {
+    if (id !== state.id) await switchTo(id);
+    $('#reports').close();
+  } else if (el.dataset.act === 'delete') {
+    const name = el.closest('.report').querySelector('.name').textContent;
+    if (!confirm(`Delete the report "${name}" and its photos? This can't be undone.`)) return;
+    if (id === state.id) {
+      clearTimeout(saveTimer); saveTimer = null;
+      await deleteReport(id);
+      const rest = await reportIndex();
+      await switchTo(rest.length ? rest[0].id : await createReport());
+      if (!rest.length) await flushSave();
+    } else {
+      await deleteReport(id);
+    }
+    renderReports();
+  }
+});
+
+// Backup files: the report plus its images as data URLs, in one JSON file.
+const toDataUrl = (blob) => new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsDataURL(blob); });
+$('#backupReport').onclick = async () => {
+  try {
+    if (saveTimer) await flushSave();
+    toast('Preparing backup…', 0);
+    const images = {};
+    for (const [id, b] of blobs) images[id] = await toDataUrl(b);
+    const file = { app: 'PhotoSheet', version: 1, saved: new Date().toISOString(), report: { settings: state.settings, photos: state.photos }, images };
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([JSON.stringify(file)], { type: 'application/json' }));
+    a.download = `${safeName(state.settings.title)}.photosheet.json`;
+    document.body.append(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+    toast('Backup saved.');
+  } catch (e) { console.error(e); toast('Could not save the backup.'); }
+};
+$('#restoreInput').addEventListener('change', async (e) => {
+  const f = e.target.files[0];
+  e.target.value = '';
+  if (!f) return;
+  try {
+    toast('Opening backup…', 0);
+    const data = JSON.parse(await f.text());
+    if (data.app !== 'PhotoSheet' || !data.report) throw new Error('not a PhotoSheet backup');
+    // New ids, so opening the same backup twice gives two separate reports.
+    const remap = {};
+    for (const [old, url] of Object.entries(data.images || {})) {
+      const id = (old.startsWith('logo-') ? 'logo-' : '') + uid();
+      await idb('blobs', 'put', id, await (await fetch(url)).blob());
+      remap[old] = id;
+    }
+    const settings = { ...DEFAULTS, ...data.report.settings, logoId: remap[data.report.settings.logoId] || null };
+    const photos = (data.report.photos || []).filter((p) => remap[p.id]).map((p) => ({ ...p, id: remap[p.id] }));
+    if (saveTimer) await flushSave();
+    const id = uid();
+    await idb('meta', 'put', 'report:' + id, JSON.stringify({ id, settings, photos }));
+    await switchTo(id);
+    await flushSave();
+    $('#reports').close();
+    toast(`Opened "${settings.title || 'Untitled'}" from the backup.`);
+  } catch (err) { console.error(err); toast("That file isn't a PhotoSheet backup.", 5000); }
+});
 
 // ---------- Image import ----------
 const IMAGE_EXT = /\.(jpe?g|png|gif|webp|bmp|avif|heic|heif|tiff?)$/i;
@@ -571,19 +794,25 @@ $('#clearAll').onclick = () => {
 };
 
 // ---------- Sheet settings ----------
-function bindForm() {
+function fillForm() {
   document.querySelectorAll('[data-key]').forEach((el) => {
     const key = el.dataset.key;
     if (el.dataset.type === 'bool') el.checked = !!state.settings[key];
     else el.value = state.settings[key] ?? '';
+  });
+  showLogo();
+}
+function bindForm() {
+  document.querySelectorAll('[data-key]').forEach((el) => {
+    const key = el.dataset.key;
     el.addEventListener(el.tagName === 'SELECT' || el.type === 'checkbox' ? 'change' : 'input', () => {
       const t = el.dataset.type;
       state.settings[key] = t === 'bool' ? el.checked : t === 'number' ? Number(el.value) || 0 : el.value;
       if (key === 'startNumber') renumber();
+      if (key === 'title') showCurrentName();
       save(); schedulePreview();
     });
   });
-  showLogo();
 }
 function showLogo() {
   const id = state.settings.logoId;
@@ -744,6 +973,7 @@ function renderPreview() {
 }
 
 // ---------- PDF export ----------
+const safeName = (t) => (t || 'photo-sheet').trim().replace(/[\\/:*?"<>|]+/g, '-').slice(0, 80) || 'photo-sheet';
 async function bytes(id) { return new Uint8Array(await blobs.get(id).arrayBuffer()); }
 
 async function exportPdf() {
@@ -821,8 +1051,7 @@ async function exportPdf() {
       await new Promise((r) => setTimeout(r)); // keep the page responsive
     }
 
-    const name = (s.title || 'photo-sheet').trim().replace(/[\\/:*?"<>|]+/g, '-').slice(0, 80) || 'photo-sheet';
-    doc.save(`${name}.pdf`);
+    doc.save(`${safeName(s.title)}.pdf`);
     toast('PDF saved.');
   } catch (e) {
     console.error(e);
@@ -861,8 +1090,11 @@ document.querySelectorAll('.tabs [data-tab]').forEach((tab) => {
 
 // ---------- Start ----------
 (async () => {
+  if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
   await load();
   bindForm();
+  fillForm();
+  showCurrentName();
   renderList();
   renderPreview();
 })();
