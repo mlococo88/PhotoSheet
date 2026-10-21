@@ -281,10 +281,10 @@
     </div>
     <ul id="reportList"></ul>
     <div class="dlg-foot">
-      <button class="btn small" type="button" id="backupReport">Save backup of this report</button>
-      <label class="btn small">Open a backup…<input id="restoreInput" class="visually-hidden" type="file" accept=".json,application/json"></label>
+      <button class="btn small" type="button" id="exportReport">Export report file</button>
+      <label class="btn small">Import report file…<input id="importInput" class="visually-hidden" type="file" accept=".json,application/json"></label>
     </div>
-    <p class="dlg-note">Reports are saved in this browser on this device. To move a report to another device, or keep a safe copy, save a backup file and open it there.</p>
+    <p class="dlg-note">Reports are saved in this browser on this device. To share one, export it and send the file to someone (email, Teams, Dropbox, AirDrop). They import it in PhotoSheet, make changes or add photos, and export it back to you. When you import a report you already have, you can replace your copy. The file includes the photos, so expect about 1 MB per photo.</p>
   </dialog>
 
   <div id="dropOverlay">Drop photos or folders to add them</div>
@@ -313,7 +313,7 @@ const DEFAULTS = {
   showDate: true, showFileName: false, logoId: null, logoW: 0, logoH: 0, logoScale: 70, includeIndex: false,
 };
 
-let state = { id: null, settings: { ...DEFAULTS }, photos: [] }; // photos: {id, name, caption, taken, w, h}
+let state = { id: null, shareId: null, settings: { ...DEFAULTS }, photos: [] }; // photos: {id, name, caption, taken, w, h}
 const blobs = new Map();  // id -> Blob
 const urls = new Map();   // id -> object URL
 
@@ -381,7 +381,7 @@ async function flushSave() {
   if (!state.id) return;
   await idb('meta', 'put', 'report:' + state.id, JSON.stringify(state));
   const list = await reportIndex();
-  const entry = { id: state.id, title: state.settings.title || 'Untitled', count: state.photos.length, updated: Date.now() };
+  const entry = { id: state.id, shareId: state.shareId, title: state.settings.title || 'Untitled', count: state.photos.length, updated: Date.now() };
   const i = list.findIndex((r) => r.id === state.id);
   if (i >= 0) list[i] = entry; else list.unshift(entry);
   await idb('meta', 'put', 'reports', list);
@@ -400,7 +400,8 @@ async function loadReport(id) {
   try {
     const saved = JSON.parse(raw);
     releaseBlobs();
-    state = { id, settings: { ...DEFAULTS, ...saved.settings }, photos: saved.photos || [] };
+    // shareId stays the same across exports and imports, so a report sent back can replace its original.
+    state = { id, shareId: saved.shareId || uid(), settings: { ...DEFAULTS, ...saved.settings }, photos: saved.photos || [] };
     const ids = [...state.photos.map((p) => p.id), state.settings.logoId].filter(Boolean);
     for (const bid of ids) {
       const b = await idb('blobs', 'get', bid);
@@ -429,7 +430,7 @@ async function createReport() {
     Object.assign(settings, { logoId: id, logoW: prev.logoW, logoH: prev.logoH });
   }
   const id = uid();
-  await idb('meta', 'put', 'report:' + id, JSON.stringify({ id, settings, photos: [] }));
+  await idb('meta', 'put', 'report:' + id, JSON.stringify({ id, shareId: uid(), settings, photos: [] }));
   return id;
 }
 
@@ -463,6 +464,7 @@ async function load() {
   const list = await reportIndex();
   if (list.length && await loadReport(list[0].id)) return;
   state.id = uid(); // a fresh report; it is saved on the first change
+  state.shareId = uid();
   state.settings.date = today();
   await idb('meta', 'put', 'current', state.id);
 }
@@ -535,32 +537,47 @@ $('#reportList').addEventListener('click', async (e) => {
   }
 });
 
-// Backup files: the report plus its images as data URLs, in one JSON file.
+// Report files: the report plus its images as data URLs, in one JSON file.
 const toDataUrl = (blob) => new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsDataURL(blob); });
-$('#backupReport').onclick = async () => {
+const isReportFile = (f) => /\.json$/i.test(f.name) || f.type === 'application/json';
+
+$('#exportReport').onclick = async () => {
   try {
     if (saveTimer) await flushSave();
-    toast('Preparing backup…', 0);
+    toast('Preparing file…', 0);
     const images = {};
     for (const [id, b] of blobs) images[id] = await toDataUrl(b);
-    const file = { app: 'PhotoSheet', version: 1, saved: new Date().toISOString(), report: { settings: state.settings, photos: state.photos }, images };
+    const data = {
+      app: 'PhotoSheet', version: 1, saved: new Date().toISOString(),
+      report: { shareId: state.shareId, settings: state.settings, photos: state.photos }, images,
+    };
+    const name = `${safeName(state.settings.title)}.photosheet.json`;
+    const file = new File([JSON.stringify(data)], name, { type: 'application/json' });
+    // On phones, open the share sheet (Mail, Messages, AirDrop, Save to Files); elsewhere, download.
+    if (matchMedia('(pointer: coarse)').matches && navigator.canShare && navigator.canShare({ files: [file] })) {
+      toast('', 1);
+      try { await navigator.share({ files: [file], title: state.settings.title || 'PhotoSheet report' }); } catch (e) { if (e.name !== 'AbortError') throw e; }
+      return;
+    }
     const a = document.createElement('a');
-    a.href = URL.createObjectURL(new Blob([JSON.stringify(file)], { type: 'application/json' }));
-    a.download = `${safeName(state.settings.title)}.photosheet.json`;
+    a.href = URL.createObjectURL(file);
+    a.download = name;
     document.body.append(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(a.href), 10000);
-    toast('Backup saved.');
-  } catch (e) { console.error(e); toast('Could not save the backup.'); }
+    toast(`Saved ${name} (${(file.size / 1048576).toFixed(1)} MB).`, 4000);
+  } catch (e) { console.error(e); toast('Could not export the report.'); }
 };
-$('#restoreInput').addEventListener('change', async (e) => {
-  const f = e.target.files[0];
-  e.target.value = '';
-  if (!f) return;
+
+async function importReportFile(f) {
   try {
-    toast('Opening backup…', 0);
+    toast('Opening report file…', 0);
     const data = JSON.parse(await f.text());
-    if (data.app !== 'PhotoSheet' || !data.report) throw new Error('not a PhotoSheet backup');
-    // New ids, so opening the same backup twice gives two separate reports.
+    if (data.app !== 'PhotoSheet' || !data.report) throw new Error('not a PhotoSheet file');
+    const shareId = data.report.shareId || uid();
+    const existing = (await reportIndex()).find((r) => r.shareId === shareId);
+    const replace = existing && confirm(
+      `You already have "${existing.title}". Replace your copy with the version in this file?\n\nOK replaces it. Cancel keeps both.`);
+    // Images get new ids, so the imported report never shares blobs with another one.
     const remap = {};
     for (const [old, url] of Object.entries(data.images || {})) {
       const id = (old.startsWith('logo-') ? 'logo-' : '') + uid();
@@ -571,12 +588,18 @@ $('#restoreInput').addEventListener('change', async (e) => {
     const photos = (data.report.photos || []).filter((p) => remap[p.id]).map((p) => ({ ...p, id: remap[p.id] }));
     if (saveTimer) await flushSave();
     const id = uid();
-    await idb('meta', 'put', 'report:' + id, JSON.stringify({ id, settings, photos }));
+    await idb('meta', 'put', 'report:' + id, JSON.stringify({ id, shareId, settings, photos }));
+    if (replace) await deleteReport(existing.id);
     await switchTo(id);
     await flushSave();
     $('#reports').close();
-    toast(`Opened "${settings.title || 'Untitled'}" from the backup.`);
-  } catch (err) { console.error(err); toast("That file isn't a PhotoSheet backup.", 5000); }
+    toast(`${replace ? 'Replaced' : 'Opened'} "${settings.title || 'Untitled'}" (${photos.length} photo${photos.length === 1 ? '' : 's'}).`, 4000);
+  } catch (err) { console.error(err); toast(`${f.name} isn't a PhotoSheet report file.`, 5000); }
+}
+$('#importInput').addEventListener('change', async (e) => {
+  const f = e.target.files[0];
+  e.target.value = '';
+  if (f) await importReportFile(f);
 });
 
 // ---------- Image import ----------
@@ -1171,7 +1194,11 @@ window.addEventListener('drop', async (e) => {
   if (!hasFiles(e)) return;
   e.preventDefault();
   dragDepth = 0; document.body.classList.remove('dragging');
-  importFiles(await fromDrop(e.dataTransfer));
+  const dropped = await fromDrop(e.dataTransfer);
+  const reports = dropped.filter((x) => isReportFile(x.file || x));
+  for (const r of reports) await importReportFile(r.file || r);
+  const rest = dropped.filter((x) => !reports.includes(x));
+  if (rest.length || !reports.length) importFiles(rest);
 });
 
 document.querySelectorAll('.tabs [data-tab]').forEach((tab) => {

@@ -34,10 +34,24 @@ them all, open one to change a caption or add photos, start a **New report**
 automatically as you go, and the report you had open last opens again next
 time.
 
-Reports are stored in the browser on the device you made them on. To move a
-report to another device, or keep a safe copy, use **Save backup of this
-report** in the Reports window. It saves one `.photosheet.json` file with the
-photos inside. **Open a backup…** on any device brings it back as a report.
+Reports are stored in the browser on the device you made them on.
+
+## Sharing a report
+
+To send a report to someone else, or move it to another device, open
+**Reports** and tap **Export report file**. On a phone this opens the share
+sheet (Mail, Messages, AirDrop, Save to Files); on a computer it downloads a
+`.photosheet.json` file. The file holds everything, photos included (about
+1 MB per photo).
+
+The other person opens PhotoSheet, taps **Reports → Import report file** (or
+drags the file onto the page), makes their changes or adds photos, and
+exports it back. When you import a report you already have, PhotoSheet asks
+whether to replace your copy or keep both.
+
+Edits aren't merged: if two people change the same report at the same time,
+the copy that's imported last wins. Pass the file back and forth rather than
+editing it in two places at once.
 
 On iPhone, add PhotoSheet to your Home Screen (Share → Add to Home Screen).
 Safari can clear storage for websites you haven't opened in a while, but it

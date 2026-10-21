@@ -134,16 +134,25 @@ try {
   await page.waitForFunction(() => document.querySelectorAll('#list .item').length === 3);
   check((await page.inputValue('#list .item:nth-child(1) textarea')).startsWith('North'), 'first report reopened with captions');
 
-  // Backup and restore.
+  // Export a report file, then import it: first keeping both, then replacing the copy.
   await page.click('#reportsBtn');
   await page.waitForSelector('#reports[open]');
-  const [backup] = await Promise.all([page.waitForEvent('download'), page.click('#backupReport')]);
-  check(backup.suggestedFilename() === 'Site Visit.photosheet.json', 'backup file saved');
-  await page.setInputFiles('#restoreInput', await backup.path());
+  const [exported] = await Promise.all([page.waitForEvent('download'), page.click('#exportReport')]);
+  check(exported.suggestedFilename() === 'Site Visit.photosheet.json', 'report file exported');
+  const reportFile = await exported.path();
+  page.once('dialog', (d) => d.dismiss());
+  await page.setInputFiles('#importInput', reportFile);
   await page.waitForFunction(() => document.querySelectorAll('#list .item').length === 3 && !document.querySelector('#reports').open);
   await page.click('#reportsBtn');
   await page.waitForSelector('#reports[open]');
-  check(await page.locator('#reportList .report').count() === 3, 'backup opened as a third report');
+  check(await page.locator('#reportList .report').count() === 3, 'import keeps both when asked');
+  page.once('dialog', (d) => d.accept());
+  await page.setInputFiles('#importInput', reportFile);
+  await page.waitForFunction(() => !document.querySelector('#reports').open);
+  await page.click('#reportsBtn');
+  await page.waitForSelector('#reports[open]');
+  check(await page.locator('#reportList .report').count() === 3, 'import replaces the existing copy');
+  check((await page.inputValue('#list .item:nth-child(1) textarea')).startsWith('North'), 'imported report has its captions');
   page.once('dialog', (d) => d.accept());
   await page.click('#reportList .report:has-text("Second Visit") [data-act=delete]');
   await page.waitForFunction(() => document.querySelectorAll('#reportList .report').length === 2);
