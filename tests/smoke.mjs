@@ -241,6 +241,11 @@ try {
   const imported = await page.evaluate(() => state.photos.map(({ name, w, h, taken }) => ({ name, w, h, taken })));
   check(imported[0].name === 'IMG_0001.HEIC' && imported[0].w === 1600 && imported[0].h === 1200, 'HEIC photo converted and added');
   check(imported[1].taken === '2024-03-02 11:22', `date taken read from the photo (${imported[1].taken})`);
+  check(imported[0].taken === '', 'no file date used when the photo has no date taken');
+  await page.fill('#list .item:nth-child(2) input.taken', '2026-01-01 00:00');
+  await page.setInputFiles('#fixDatesInput', path.join(root, 'tests/fixtures/exif-date.jpg'));
+  await page.waitForFunction(() => state.photos[1].taken === '2024-03-02 11:22');
+  check(await page.inputValue('#list .item:nth-child(2) input.taken') === '2024-03-02 11:22', 'Fix dates reads the date from the original file');
 
   // Phone-sized layout: tabs switch panels.
   await page.setViewportSize({ width: 390, height: 800 });

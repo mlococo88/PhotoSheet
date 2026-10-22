@@ -79,8 +79,11 @@ keeps storage for Home Screen apps.
   other browsers (Chrome, Edge, Firefox) the first HEIC photo downloads a
   converter (heic-to, about 3 MB, then cached), so that first time needs an
   internet connection.
-- The date taken comes from the photo's own data when it has it, otherwise
-  from the file's date.
+- The date taken is read from the photo's own camera data, never from the
+  file's date (that's usually when it was copied to the computer). Photos
+  without camera data (screenshots, photos sent through some apps) are left
+  blank to type in. To correct dates on photos already in a report, use
+  **Fix dates…** and pick the original files; they're matched by file name.
 - The PDF uses Helvetica, so characters outside Latin-1 (e.g. emoji, CJK) won't
   show in the PDF.
 

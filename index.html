@@ -237,6 +237,7 @@
         <h2>Photos <span id="count"></span></h2>
         <button class="btn small" type="button" id="sortName">Sort by name</button>
         <button class="btn small" type="button" id="sortDate">Sort by date taken</button>
+        <label class="btn small" id="fixDates" title="Pick the original photo files again to read when each was taken">Fix dates…<input id="fixDatesInput" class="visually-hidden" type="file" accept="image/*,.heic,.heif" multiple></label>
         <button class="btn small danger" type="button" id="clearAll">Remove all</button>
       </div>
       <div class="empty" id="empty">
@@ -789,7 +790,7 @@ async function readTaken(file) {
       if (d instanceof Date && !isNaN(d)) return formatDate(d);
     }
   } catch { /* no EXIF */ }
-  return file.lastModified ? formatDate(new Date(file.lastModified)) : '';
+  return ''; // not the file's date: that's usually when it was copied, not when it was taken
 }
 
 let importing = false;
@@ -799,7 +800,7 @@ async function importFiles(list) {
   if (importing) { toast('Still adding the last batch, try again in a moment.'); return; }
   importing = true;
   const skipped = [];
-  let added = 0, heicTrouble = false;
+  let added = 0, heicTrouble = false, undated = 0;
   try {
     for (let i = 0; i < files.length; i++) {
       const file = files[i].file || files[i];
@@ -809,6 +810,7 @@ async function importFiles(list) {
         const { blob, w, h } = await render(src);
         if (src.close) src.close();
         const photo = { id: uid(), name: file.name, caption: '', taken: await readTaken(file), w, h };
+        if (!photo.taken) undated++;
         blobs.set(photo.id, blob);
         await idb('blobs', 'put', photo.id, blob);
         state.photos.push(photo);
@@ -825,11 +827,15 @@ async function importFiles(list) {
     save(); renderList(); schedulePreview();
   }
   let msg = `Added ${added} photo${added === 1 ? '' : 's'}.`;
+  if (undated) {
+    const who = undated === added ? (added === 1 ? "It doesn't" : "They don't") : undated === 1 ? "1 of them doesn't" : `${undated} of them don't`;
+    msg += ` ${who} have a date taken stored in ${undated === 1 ? 'it' : 'them'} (screenshots and photos sent through some apps lose it); you can type one in.`;
+  }
   if (skipped.length) msg += ` Couldn't read ${skipped.length} (${skipped.slice(0, 3).join(', ')}${skipped.length > 3 ? '…' : ''}).`;
   if (heicTrouble) msg += navigator.onLine === false
     ? ' iPhone (HEIC) photos need an internet connection the first time, to download the converter.'
     : ' Some iPhone (HEIC) photos could not be converted. On the iPhone, set Settings → Camera → Formats → Most Compatible to take JPEG photos instead.';
-  toast(msg, skipped.length ? 8000 : 2600);
+  toast(msg, skipped.length || undated ? 8000 : 2600);
 }
 
 // Folder input: keep the folder's own file order (natural sort on the path).
@@ -882,7 +888,7 @@ function renderList() {
   const nums = listNumbers();
   showCount();
   $('#empty').hidden = n > 0;
-  for (const id of ['sortName', 'sortDate', 'clearAll']) $('#' + id).hidden = n === 0;
+  for (const id of ['sortName', 'sortDate', 'fixDates', 'clearAll']) $('#' + id).hidden = n === 0;
   list.innerHTML = state.photos.map((p, i) => `
     <li class="item${p.exclude ? ' excluded' : ''}" data-id="${p.id}">
       <div class="handle" title="Drag to reorder" aria-hidden="true">⋮⋮</div>
@@ -899,7 +905,7 @@ function renderList() {
         </div>
         <textarea data-field="caption" rows="2" placeholder="Description">${esc(p.caption)}</textarea>
         <div class="row">
-          <input class="taken" data-field="taken" type="text" value="${esc(p.taken)}" placeholder="Date taken" aria-label="Date taken">
+          <input class="taken" data-field="taken" type="text" value="${esc(p.taken)}" placeholder="Date taken (not in photo)" aria-label="Date taken">
           <label class="incl"><input type="checkbox" data-include ${p.exclude ? '' : 'checked'}> Include in report</label>
         </div>
       </div>
@@ -984,9 +990,32 @@ $('#sortName').onclick = () => {
   save(); renderList(); schedulePreview();
 };
 $('#sortDate').onclick = () => {
-  state.photos.sort((a, b) => (a.taken || '').localeCompare(b.taken || '') || collator.compare(a.name, b.name));
+  state.photos.sort((a, b) => (!a.taken - !b.taken) || (a.taken || '').localeCompare(b.taken || '') || collator.compare(a.name, b.name));
   save(); renderList(); schedulePreview();
 };
+// Re-read "date taken" from the original files, matched to photos by file name. The copies kept in
+// the app don't carry the camera's data, so the originals are needed.
+$('#fixDatesInput').addEventListener('change', async (e) => {
+  const files = [...e.target.files];
+  e.target.value = '';
+  if (!files.length) return;
+  toast('Reading dates…', 0);
+  let fixed = 0, matched = 0;
+  for (const f of files) {
+    const photos = state.photos.filter((p) => p.name === f.name);
+    if (!photos.length) continue;
+    matched++;
+    const taken = await readTaken(f);
+    if (!taken) continue;
+    for (const p of photos) { if (p.taken !== taken) { p.taken = taken; fixed++; } }
+  }
+  save(); renderList(); schedulePreview();
+  const unmatched = files.length - matched;
+  toast(`Updated the date on ${fixed} photo${fixed === 1 ? '' : 's'}.`
+    + (unmatched ? ` ${unmatched} file${unmatched === 1 ? " didn't" : "s didn't"} match a photo's file name.` : '')
+    + (matched && !fixed ? ' The dates already matched, or the files have no date taken stored in them.' : ''), 6000);
+});
+
 $('#clearAll').onclick = () => {
   if (!confirm(`Remove all ${state.photos.length} photos from this sheet?`)) return;
   for (const p of state.photos) photoBlobIds(p).forEach(dropBlob);
