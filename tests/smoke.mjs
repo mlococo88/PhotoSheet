@@ -241,7 +241,36 @@ try {
   const imported = await page.evaluate(() => state.photos.map(({ name, w, h, taken }) => ({ name, w, h, taken })));
   check(imported[0].name === 'IMG_0001.HEIC' && imported[0].w === 1600 && imported[0].h === 1200, 'HEIC photo converted and added');
   check(imported[1].taken === '2024-03-02 11:22', `date taken read from the photo (${imported[1].taken})`);
-  check(imported[0].taken === '', 'no file date used when the photo has no date taken');
+  check(imported[0].taken === '2025-06-14 09:30', `HEIC date taken read (${imported[0].taken})`);
+
+  // Date taken from every kind of file, with and without exifr (which can fail to load or to read a file).
+  const datesFrom = (withoutExifr) => page.evaluate(async (off) => {
+    const saved = window.exifr;
+    if (off) window.exifr = undefined;
+    try {
+      const out = {};
+      for (const name of ['exif-date.jpg', 'exif-little-endian.jpg', 'xmp-date.jpg', 'no-date-taken.jpg', 'IMG_0001.HEIC']) {
+        const blob = await (await fetch(`tests/fixtures/${name}`)).blob();
+        out[name] = await readTaken(new File([blob], name));
+      }
+      return out;
+    } finally { window.exifr = saved; }
+  }, withoutExifr);
+  const expected = { 'exif-date.jpg': '2024-03-02 11:22', 'exif-little-endian.jpg': '2024-12-31 23:59', 'xmp-date.jpg': '2025-09-30 07:45', 'no-date-taken.jpg': '', 'IMG_0001.HEIC': '2025-06-14 09:30' };
+  // Dragging a photo onto the page reads its date the same way.
+  await page.evaluate(async () => {
+    const dt = new DataTransfer();
+    dt.items.add(new File([await (await fetch('tests/fixtures/exif-little-endian.jpg')).blob()], 'dragged.jpg', { type: 'image/jpeg' }));
+    window.dispatchEvent(new DragEvent('drop', { dataTransfer: dt, bubbles: true, cancelable: true }));
+  });
+  await page.waitForFunction(() => state.photos.some((p) => p.name === 'dragged.jpg') && !importing);
+  check(await page.evaluate(() => state.photos.find((p) => p.name === 'dragged.jpg').taken) === '2024-12-31 23:59', 'dragged-in photo gets its date taken');
+  await page.click('#list .item:last-child [data-act=remove]');
+
+  for (const off of [false, true]) {
+    const got = await datesFrom(off);
+    check(JSON.stringify(got) === JSON.stringify(expected), `dates read correctly ${off ? 'without' : 'with'} exifr: ${JSON.stringify(got)}`);
+  }
   await page.fill('#list .item:nth-child(2) input.taken', '2026-01-01 00:00');
   await page.setInputFiles('#fixDatesInput', path.join(root, 'tests/fixtures/exif-date.jpg'));
   await page.waitForFunction(() => state.photos[1].taken === '2024-03-02 11:22');

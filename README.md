@@ -79,7 +79,9 @@ keeps storage for Home Screen apps.
   other browsers (Chrome, Edge, Firefox) the first HEIC photo downloads a
   converter (heic-to, about 3 MB, then cached), so that first time needs an
   internet connection.
-- The date taken is read from the photo's own camera data, never from the
+- The date taken is read from the photo's own camera data (EXIF in JPEG and
+  HEIC, or XMP from editing apps; the app reads these itself, so it works
+  even if a library fails to load), never from the
   file's date (that's usually when it was copied to the computer). Photos
   without camera data (screenshots, photos sent through some apps) are left
   blank to type in. To correct dates on photos already in a report, use
