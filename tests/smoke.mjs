@@ -35,6 +35,7 @@ try {
     'jspdf.umd.min.js': 'node_modules/jspdf/dist/jspdf.umd.min.js',
     'Sortable.min.js': 'node_modules/sortablejs/Sortable.min.js',
     'lite.umd.js': 'node_modules/exifr/dist/lite.umd.js',
+    'heic-to.js': 'node_modules/heic-to/dist/iife/heic-to.js',
   };
   await context.route(/^https:\/\/(cdnjs\.cloudflare\.com|cdn\.jsdelivr\.net)\//, async (route) => {
     const local = libs[route.request().url().split('/').pop()];
@@ -233,6 +234,13 @@ try {
   await page.click('#clearAll');
   await page.waitForFunction(() => document.querySelectorAll('#list .item').length === 0);
   check(true, 'remove all');
+
+  // iPhone HEIC photos convert (Chromium can't open HEIC itself), and the date taken is read from the photo.
+  await page.setInputFiles('#files', [path.join(root, 'tests/fixtures/IMG_0001.HEIC'), path.join(root, 'tests/fixtures/exif-date.jpg')]);
+  await page.waitForFunction(() => document.querySelectorAll('#list .item').length === 2, null, { timeout: 60000 });
+  const imported = await page.evaluate(() => state.photos.map(({ name, w, h, taken }) => ({ name, w, h, taken })));
+  check(imported[0].name === 'IMG_0001.HEIC' && imported[0].w === 1600 && imported[0].h === 1200, 'HEIC photo converted and added');
+  check(imported[1].taken === '2024-03-02 11:22', `date taken read from the photo (${imported[1].taken})`);
 
   // Phone-sized layout: tabs switch panels.
   await page.setViewportSize({ width: 390, height: 800 });

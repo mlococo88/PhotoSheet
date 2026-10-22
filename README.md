@@ -75,8 +75,12 @@ keeps storage for Home Screen apps.
 
 - Large photos are scaled to 2400 px on the long edge when they're added, which
   keeps PDFs a reasonable size and is still sharp at full-page print size.
-- HEIC photos open only in browsers that can decode HEIC (Safari). iPhones
-  usually convert to JPEG when you pick photos in the browser.
+- iPhone HEIC photos work in every browser. Safari opens them directly; in
+  other browsers (Chrome, Edge, Firefox) the first HEIC photo downloads a
+  converter (heic-to, about 3 MB, then cached), so that first time needs an
+  internet connection.
+- The date taken comes from the photo's own data when it has it, otherwise
+  from the file's date.
 - The PDF uses Helvetica, so characters outside Latin-1 (e.g. emoji, CJK) won't
   show in the PDF.
 
@@ -84,7 +88,7 @@ keeps storage for Home Screen apps.
 
 | File | Purpose |
 | --- | --- |
-| `index.html` | The whole app. Libraries (jsPDF, SortableJS, exifr) load from CDNs |
+| `index.html` | The whole app. Libraries (jsPDF, SortableJS, exifr, and heic-to when a HEIC photo is added) load from CDNs |
 | `tests/smoke.mjs` | Smoke test: adds photos, edits, reorders, exports a PDF, reloads |
 
 ## Running locally

@@ -215,10 +215,10 @@
     <div class="brand"><div>Photo<span>Sheet</span></div><span class="current-report" id="currentName"></span></div>
     <button class="btn" id="reportsBtn" type="button" title="Open, start or back up reports">Reports</button>
     <label class="btn touch-only" title="Take a photo with the camera">
-      Camera<input id="camera" class="visually-hidden" type="file" accept="image/*" capture="environment">
+      Camera<input id="camera" class="visually-hidden" type="file" accept="image/*,.heic,.heif" capture="environment">
     </label>
     <label class="btn" title="Choose photos">
-      Add photos<input id="files" class="visually-hidden" type="file" accept="image/*" multiple>
+      Add photos<input id="files" class="visually-hidden" type="file" accept="image/*,.heic,.heif" multiple>
     </label>
     <label class="btn" title="Add every photo in a folder">
       Add folder<input id="folder" class="visually-hidden" type="file" webkitdirectory multiple>
@@ -298,7 +298,7 @@
       <label class="wide">Logo (top-left corner)
         <span class="logo-row">
           <img id="logoPreview" alt="" hidden>
-          <label class="btn small">Choose…<input id="logoInput" class="visually-hidden" type="file" accept="image/*"></label>
+          <label class="btn small">Choose…<input id="logoInput" class="visually-hidden" type="file" accept="image/*,.heic,.heif"></label>
           <button class="btn small" type="button" id="logoRemove" hidden>Remove</button>
         </span>
         <span class="logo-size" id="logoSize" hidden>
@@ -715,9 +715,36 @@ $('#importInput').addEventListener('change', async (e) => {
 const IMAGE_EXT = /\.(jpe?g|png|gif|webp|bmp|avif|heic|heif|tiff?)$/i;
 const isImage = (f) => (f.type && f.type.startsWith('image/')) || IMAGE_EXT.test(f.name);
 
+// HEIC (iPhone photos): Safari opens these itself. Other browsers can't, so the first time one turns up
+// we download a converter (about 3 MB, then cached by the browser) and use it.
+const HEIC_URL = 'https://cdn.jsdelivr.net/npm/heic-to@1.5.2/dist/iife/heic-to.js';
+const HEIC_BRANDS = ['heic', 'heix', 'hevc', 'hevx', 'heim', 'heis', 'mif1', 'msf1'];
+async function looksHeic(blob) {
+  const head = new Uint8Array(await blob.slice(0, 12).arrayBuffer());
+  const text = String.fromCharCode(...head);
+  return text.slice(4, 8) === 'ftyp' && HEIC_BRANDS.includes(text.slice(8, 12));
+}
+let heicLoader = null;
+function loadHeic() {
+  if (window.HeicTo) return Promise.resolve(window.HeicTo);
+  heicLoader = heicLoader || new Promise((resolve, reject) => {
+    toast('Getting the HEIC converter (one-time download)…', 0);
+    const script = document.createElement('script');
+    script.src = HEIC_URL;
+    script.onload = () => (window.HeicTo ? resolve(window.HeicTo) : reject(new Error('HEIC converter missing')));
+    script.onerror = () => { heicLoader = null; script.remove(); reject(Object.assign(new Error('HEIC converter could not be downloaded'), { heic: true })); };
+    document.head.append(script);
+  });
+  return heicLoader;
+}
+
 async function decode(blob) {
   if (window.createImageBitmap) {
     try { return await createImageBitmap(blob, { imageOrientation: 'from-image' }); } catch { /* fall through */ }
+  }
+  if (await looksHeic(blob)) {
+    const heicTo = await loadHeic();
+    try { return await heicTo({ blob, type: 'bitmap' }); } catch (e) { throw Object.assign(new Error('HEIC conversion failed'), { heic: true, cause: e }); }
   }
   const url = URL.createObjectURL(blob);
   try {
@@ -757,7 +784,7 @@ function formatDate(d) {
 async function readTaken(file) {
   try {
     if (window.exifr) {
-      const tags = await exifr.parse(file, ['DateTimeOriginal', 'CreateDate']);
+      const tags = await exifr.parse(file); // (asking for named tags throws in exifr's lite build)
       const d = tags && (tags.DateTimeOriginal || tags.CreateDate);
       if (d instanceof Date && !isNaN(d)) return formatDate(d);
     }
@@ -772,7 +799,7 @@ async function importFiles(list) {
   if (importing) { toast('Still adding the last batch, try again in a moment.'); return; }
   importing = true;
   const skipped = [];
-  let added = 0;
+  let added = 0, heicTrouble = false;
   try {
     for (let i = 0; i < files.length; i++) {
       const file = files[i].file || files[i];
@@ -790,6 +817,7 @@ async function importFiles(list) {
       } catch (e) {
         console.warn('Skipped', file.name, e);
         skipped.push(file.name);
+        if (e && e.heic) heicTrouble = true;
       }
     }
   } finally {
@@ -797,7 +825,10 @@ async function importFiles(list) {
     save(); renderList(); schedulePreview();
   }
   let msg = `Added ${added} photo${added === 1 ? '' : 's'}.`;
-  if (skipped.length) msg += ` Couldn't read ${skipped.length} (${skipped.slice(0, 3).join(', ')}${skipped.length > 3 ? '…' : ''}). HEIC files only open in Safari; export them as JPEG elsewhere.`;
+  if (skipped.length) msg += ` Couldn't read ${skipped.length} (${skipped.slice(0, 3).join(', ')}${skipped.length > 3 ? '…' : ''}).`;
+  if (heicTrouble) msg += navigator.onLine === false
+    ? ' iPhone (HEIC) photos need an internet connection the first time, to download the converter.'
+    : ' Some iPhone (HEIC) photos could not be converted. On the iPhone, set Settings → Camera → Formats → Most Compatible to take JPEG photos instead.';
   toast(msg, skipped.length ? 8000 : 2600);
 }
 
