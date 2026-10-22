@@ -404,7 +404,7 @@ const GRIDS = { // [cols, rows] for portrait / landscape
   1: { p: [1, 1], l: [1, 1] }, 2: { p: [1, 2], l: [2, 1] }, 3: { p: [1, 3], l: [3, 1] },
   4: { p: [2, 2], l: [2, 2] }, 6: { p: [2, 3], l: [3, 2] }, 8: { p: [2, 4], l: [4, 2] },
 };
-const APP_VERSION = '2026-10-22.4'; // bump on each release, so people can tell a stale cached page apart
+const APP_VERSION = '2026-10-22.5'; // bump on each release, so people can tell a stale cached page apart
 const MAX_EDGE = 2400;      // px; imported photos are scaled down to this long edge
 const JPEG_QUALITY = 0.88;
 const PT = 0.3528;          // mm per point
@@ -784,21 +784,37 @@ function formatDate(d) {
   const p = (n) => String(n).padStart(2, '0');
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
 }
-// Date taken, read straight from the file: the camera's EXIF block (JPEG and HEIC both carry it as
-// "Exif\0\0" + a TIFF structure), then exifr, then XMP (written by Lightroom, Windows Photos and others).
-// Times are kept as the camera wrote them (its local time), with no time-zone conversion.
+// Date taken, read straight from the file, in the order Windows and macOS use for "Date taken":
+//   1. EXIF DateTimeOriginal, then DateTimeDigitized (the camera's capture time)
+//   2. XMP DateTimeOriginal / DateCreated / CreateDate (written by Lightroom, Windows Photos and others)
+//   3. exifr, in case it can read something the scan below can't
+//   4. EXIF DateTime: some phones and apps record the capture time only here. In edited photos it's the
+//      edit time, but those keep DateTimeOriginal too, which wins above.
+// EXIF is a TIFF structure, normally labelled "Exif\0\0" (JPEG, most HEIC) but sometimes bare (some HEIC,
+// PNG, WebP), so both are looked for. Times are kept as the camera wrote them, with no time-zone conversion.
 const EXIF_DATE = /^(\d{4}):(\d{2}):(\d{2})[ T](\d{2}):(\d{2})/;
-function exifDateIn(bin) {
-  for (let at = bin.indexOf('Exif\0\0'); at >= 0; at = bin.indexOf('Exif\0\0', at + 6)) {
-    const t = at + 6, le = bin.substr(t, 4) === 'II*\0';
-    if (!le && bin.substr(t, 4) !== 'MM\0*') continue;
+function exifDate(raw) {
+  const m = EXIF_DATE.exec(raw || '');
+  return m && m[1] !== '0000' ? `${m[1]}-${m[2]}-${m[3]} ${m[4]}:${m[5]}` : '';
+}
+// Dates from the first readable EXIF block: { original, digitized, modified, blocks }.
+function exifDatesIn(bin) {
+  const found = { original: '', digitized: '', modified: '', blocks: 0 };
+  const starts = [];
+  for (const sig of ['II*\0', 'MM\0*']) {
+    for (let at = bin.indexOf(sig); at >= 0 && starts.length < 400; at = bin.indexOf(sig, at + 4)) starts.push(at);
+  }
+  starts.sort((a, b) => (bin.substr(b - 6, 6) === 'Exif\0\0') - (bin.substr(a - 6, 6) === 'Exif\0\0') || a - b); // labelled ones first
+  for (const t of starts) {
+    const le = bin[t] === 'I';
     const u16 = (o) => { const a = bin.charCodeAt(t + o), b = bin.charCodeAt(t + o + 1); return le ? a | (b << 8) : (a << 8) | b; };
     const u32 = (o) => (le ? u16(o) + u16(o + 2) * 65536 : u16(o) * 65536 + u16(o + 2));
-    const inRange = (o) => o > 0 && t + o + 2 < bin.length;
+    const inRange = (o) => o >= 8 && t + o + 2 < bin.length;
     const entries = (ifd) => {
       const out = new Map();
       if (!inRange(ifd)) return out;
-      const n = Math.min(u16(ifd), 500);
+      const n = u16(ifd);
+      if (n === 0 || n > 500) return out;
       for (let i = 0; i < n; i++) {
         const e = ifd + 2 + i * 12;
         if (!inRange(e + 12)) break;
@@ -811,13 +827,16 @@ function exifDateIn(bin) {
       const off = entry.count > 4 ? u32(entry.at) : entry.at;
       return inRange(off) ? bin.substr(t + off, Math.min(entry.count, 32)) : '';
     };
-    const ifd0 = entries(u32(4)), exif = ifd0.has(0x8769) ? entries(u32(ifd0.get(0x8769).at)) : new Map();
-    for (const raw of [text(exif.get(0x9003)), text(exif.get(0x9004))]) { // DateTimeOriginal, DateTimeDigitized
-      const m = EXIF_DATE.exec(raw);
-      if (m && m[1] !== '0000') return `${m[1]}-${m[2]}-${m[3]} ${m[4]}:${m[5]}`;
-    }
+    const ifd0 = entries(u32(4));
+    if (!ifd0.size) continue;
+    found.blocks++;
+    const exif = ifd0.has(0x8769) ? entries(u32(ifd0.get(0x8769).at)) : new Map();
+    found.original = found.original || exifDate(text(exif.get(0x9003)) || text(ifd0.get(0x9003)));
+    found.digitized = found.digitized || exifDate(text(exif.get(0x9004)));
+    found.modified = found.modified || exifDate(text(ifd0.get(0x0132)));
+    if (found.original) break;
   }
-  return '';
+  return found;
 }
 function xmpDateIn(bin) {
   for (const tag of ['exif:DateTimeOriginal', 'photoshop:DateCreated', 'xmp:CreateDate']) {
@@ -833,22 +852,30 @@ function byteString(u8) {
   for (let i = 0; i < u8.length; i += 0x8000) out += String.fromCharCode.apply(null, u8.subarray(i, i + 0x8000));
   return out;
 }
-async function readTaken(file) {
-  let bin = '';
+// { taken, note }: note says what was found, for the "Why?" link when there's no date.
+async function readDate(file) {
+  let bin = '', exif = { original: '', digitized: '', modified: '', blocks: 0 }, xmp = '', fromExifr = '', exifrState = 'not loaded';
   try {
     if (file.size <= 80 * 1048576) bin = byteString(new Uint8Array(await file.arrayBuffer()));
-    const fromExif = exifDateIn(bin);
-    if (fromExif) return fromExif;
-  } catch (e) { console.warn('EXIF scan failed', e); }
-  try {
-    if (window.exifr) {
+    exif = exifDatesIn(bin);
+    xmp = xmpDateIn(bin);
+  } catch (e) { console.warn('Date scan failed', e); }
+  if (window.exifr) {
+    try {
       const tags = await exifr.parse(file); // (asking for named tags throws in exifr's lite build)
       const d = tags && (tags.DateTimeOriginal || tags.CreateDate);
-      if (d instanceof Date && !isNaN(d)) return formatDate(d);
-    }
-  } catch { /* exifr couldn't read it */ }
-  return xmpDateIn(bin); // '' if none: not the file's date, that's usually when it was copied
+      fromExifr = d instanceof Date && !isNaN(d) ? formatDate(d) : '';
+      exifrState = fromExifr ? `found ${fromExifr}` : 'no date';
+    } catch (e) { exifrState = `couldn't read it (${e && e.message})`; }
+  }
+  const taken = exif.original || exif.digitized || xmp || fromExifr || exif.modified;
+  const sig = bin.substr(0, 16).replace(/[^\x20-\x7e]/g, '.');
+  const note = `${file.name}: ${file.type || 'unknown type'}, ${Math.round(file.size / 1024)} KB, starts "${sig}". `
+    + `EXIF blocks: ${exif.blocks}; DateTimeOriginal: ${exif.original || 'none'}; DateTimeDigitized: ${exif.digitized || 'none'}; `
+    + `DateTime: ${exif.modified || 'none'}. XMP date: ${xmp || (bin.includes('x:xmpmeta') ? 'XMP present, no date' : 'no XMP')}. exifr: ${exifrState}.`;
+  return { taken, note };
 }
+async function readTaken(file) { return (await readDate(file)).taken; }
 
 let importing = false;
 async function importFiles(list) {
@@ -866,8 +893,9 @@ async function importFiles(list) {
         const src = await decode(file);
         const { blob, w, h } = await render(src);
         if (src.close) src.close();
-        const photo = { id: uid(), name: file.name, caption: '', taken: await readTaken(file), w, h };
-        if (!photo.taken) undated++;
+        const date = await readDate(file);
+        const photo = { id: uid(), name: file.name, caption: '', taken: date.taken, w, h };
+        if (!photo.taken) { undated++; photo.dateNote = date.note; }
         blobs.set(photo.id, blob);
         await idb('blobs', 'put', photo.id, blob);
         state.photos.push(photo);
@@ -963,6 +991,7 @@ function renderList() {
         <textarea data-field="caption" rows="2" placeholder="Description">${esc(p.caption)}</textarea>
         <div class="row">
           <input class="taken" data-field="taken" type="text" value="${esc(p.taken)}" placeholder="Date taken (not in photo)" aria-label="Date taken">
+          ${!p.taken && p.dateNote ? '<button class="btn small" type="button" data-act="why" title="What the app found in this file">Why?</button>' : ''}
           <label class="incl"><input type="checkbox" data-include ${p.exclude ? '' : 'checked'}> Include in report</label>
         </div>
       </div>
@@ -1015,6 +1044,12 @@ $('#list').addEventListener('click', (e) => {
   if (act === 'up' || act === 'down') { move(i, act === 'up' ? i - 1 : i + 1); renderList(); }
   else if (act === 'rotate') rotate(state.photos[i]);
   else if (act === 'markup') openMarkup(state.photos[i]);
+  else if (act === 'why') {
+    const note = state.photos[i].dateNote;
+    const text = `No date taken was found in this photo's file. What the app found:\n\n${note}\n\nType the date in, or send this text to whoever maintains PhotoSheet.`;
+    if (navigator.clipboard) navigator.clipboard.writeText(note).catch(() => {});
+    alert(text + (navigator.clipboard ? '\n\n(Copied to the clipboard.)' : ''));
+  }
   else if (act === 'remove') {
     const [gone] = state.photos.splice(i, 1);
     photoBlobIds(gone).forEach(dropBlob);
@@ -1062,9 +1097,12 @@ $('#fixDatesInput').addEventListener('change', async (e) => {
     const photos = state.photos.filter((p) => p.name === f.name);
     if (!photos.length) continue;
     matched++;
-    const taken = await readTaken(f);
-    if (!taken) continue;
-    for (const p of photos) { if (p.taken !== taken) { p.taken = taken; fixed++; } }
+    const { taken, note } = await readDate(f);
+    for (const p of photos) {
+      if (!taken) { p.dateNote = note; continue; }
+      delete p.dateNote;
+      if (p.taken !== taken) { p.taken = taken; fixed++; }
+    }
   }
   save(); renderList(); schedulePreview();
   const unmatched = files.length - matched;

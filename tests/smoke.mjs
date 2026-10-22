@@ -244,19 +244,31 @@ try {
   check(imported[0].taken === '2025-06-14 09:30', `HEIC date taken read (${imported[0].taken})`);
 
   // Date taken from every kind of file, with and without exifr (which can fail to load or to read a file).
-  const datesFrom = (withoutExifr) => page.evaluate(async (off) => {
+  const expected = {
+    'exif-date.jpg': '2024-03-02 11:22', 'exif-little-endian.jpg': '2024-12-31 23:59', 'xmp-date.jpg': '2025-09-30 07:45',
+    'datetime-only.jpg': '2026-10-22 09:00', 'edited.jpg': '2025-05-01 10:00', 'bare-exif.png': '2023-07-04 18:30',
+    'no-date.jpg': '', 'IMG_0001.HEIC': '2025-06-14 09:30',
+  };
+  const datesFrom = (withoutExifr) => page.evaluate(async ({ off, expected }) => {
     const saved = window.exifr;
     if (off) window.exifr = undefined;
     try {
       const out = {};
-      for (const name of ['exif-date.jpg', 'exif-little-endian.jpg', 'xmp-date.jpg', 'no-date-taken.jpg', 'IMG_0001.HEIC']) {
+      for (const name of Object.keys(expected)) {
         const blob = await (await fetch(`tests/fixtures/${name}`)).blob();
         out[name] = await readTaken(new File([blob], name));
       }
       return out;
     } finally { window.exifr = saved; }
-  }, withoutExifr);
-  const expected = { 'exif-date.jpg': '2024-03-02 11:22', 'exif-little-endian.jpg': '2024-12-31 23:59', 'xmp-date.jpg': '2025-09-30 07:45', 'no-date-taken.jpg': '', 'IMG_0001.HEIC': '2025-06-14 09:30' };
+  }, { off: withoutExifr, expected });
+  // A photo with no date gets a "Why?" button that explains what was found.
+  await page.setInputFiles('#files', path.join(root, 'tests/fixtures/no-date.jpg'));
+  await page.waitForFunction(() => state.photos.some((p) => p.name === 'no-date.jpg') && !importing);
+  const whyText = new Promise((resolve) => page.once('dialog', (d) => { resolve(d.message()); d.accept(); }));
+  await page.click('#list .item:last-child [data-act=why]');
+  check((await whyText).includes('no-date.jpg: image/jpeg') && (await whyText).includes('DateTimeOriginal: none'), '"Why?" explains a missing date');
+  await page.click('#list .item:last-child [data-act=remove]');
+
   // Dragging a photo onto the page reads its date the same way.
   await page.evaluate(async () => {
     const dt = new DataTransfer();
